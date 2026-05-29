@@ -16,3 +16,6 @@
 
 /build
 /release
+
+# Auto-downloaded native runtime AARs (see build.gradle.kts), e.g. sherpa-onnx.
+/libs

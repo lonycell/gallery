@@ -41,6 +41,10 @@ dependencyResolutionManagement {
     //        mavenLocal()
     google()
     mavenCentral()
+    // Hosts the sherpa-onnx native runtime AAR used by the Speech (TTS/STT) custom tasks.
+    // The official AAR is published only on GitHub releases (not Maven Central), so it is
+    // downloaded on demand into app/libs/ (see app/build.gradle.kts) and consumed from here.
+    flatDir { dirs("app/libs") }
   }
 }
 

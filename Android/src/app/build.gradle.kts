@@ -28,6 +28,39 @@ plugins {
   kotlin("kapt")
 }
 
+// ---------------------------------------------------------------------------
+// sherpa-onnx native runtime (used by the Speech "Text to Speech" and
+// "Speech to Text" custom tasks for on-device TTS/ASR inference).
+//
+// The official prebuilt AAR (which bundles both the Kotlin API and the JNI
+// `.so` libraries for all ABIs) is published only on GitHub releases, not on
+// Maven Central. To keep the binary out of git, we download it on demand into
+// `app/libs/` (git-ignored) and consume it through the `flatDir` repository
+// declared in `settings.gradle.kts`. The download only happens on the first
+// build (or after the file is removed).
+// ---------------------------------------------------------------------------
+val sherpaOnnxVersion = "1.13.2"
+val sherpaOnnxAar = file("libs/sherpa-onnx-$sherpaOnnxVersion.aar")
+if (!sherpaOnnxAar.exists()) {
+  val sherpaOnnxUrl =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaOnnxVersion/" +
+      "sherpa-onnx-$sherpaOnnxVersion.aar"
+  logger.lifecycle("Downloading sherpa-onnx AAR ($sherpaOnnxVersion) from $sherpaOnnxUrl ...")
+  sherpaOnnxAar.parentFile.mkdirs()
+  try {
+    java.net.URI(sherpaOnnxUrl).toURL().openStream().use { input ->
+      sherpaOnnxAar.outputStream().use { output -> input.copyTo(output) }
+    }
+  } catch (e: Exception) {
+    sherpaOnnxAar.delete()
+    throw GradleException(
+      "Failed to download the sherpa-onnx AAR from $sherpaOnnxUrl. Please check your network " +
+        "connection, or download it manually and place it at ${sherpaOnnxAar.absolutePath}.",
+      e,
+    )
+  }
+}
+
 android {
   namespace = "com.google.ai.edge.gallery"
   compileSdk = 35
@@ -124,6 +157,9 @@ dependencies {
   implementation(libs.mcp.kotlin.sdk)
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.core)
+  // sherpa-onnx native runtime for the Speech (TTS/STT) custom tasks. Resolved from the
+  // flatDir repository against the AAR downloaded above into app/libs/.
+  implementation(":sherpa-onnx-$sherpaOnnxVersion@aar")
 }
 
 protobuf {
