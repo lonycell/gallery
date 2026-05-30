@@ -27,6 +27,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,9 +44,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -177,6 +180,16 @@ fun VoiceAssistantScreen(
         isThinking = uiState.isThinking,
         isSpeaking = uiState.isSpeaking,
       )
+
+      // Voice picker (shown when more than one voice is available).
+      if (uiState.voices.size > 1) {
+        Spacer(modifier = Modifier.height(8.dp))
+        VoicePickerRow(
+          voices = uiState.voices,
+          selectedId = uiState.selectedVoiceId,
+          onSelect = { viewModel.selectVoice(it) },
+        )
+      }
 
       Spacer(modifier = Modifier.height(8.dp))
 
@@ -327,6 +340,51 @@ private fun VoiceOrb(isListening: Boolean, isThinking: Boolean, isSpeaking: Bool
             )
           )
     )
+  }
+}
+
+/** A horizontally scrollable row of selectable voice chips. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VoicePickerRow(
+  voices: List<VoiceOption>,
+  selectedId: String,
+  onSelect: (String) -> Unit,
+) {
+  Row(
+    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    voices.forEach { voice ->
+      val selected = voice.id == selectedId
+      val container =
+        if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+      val content =
+        if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+      Surface(
+        onClick = { onSelect(voice.id) },
+        shape = RoundedCornerShape(20.dp),
+        color = container,
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        ) {
+          if (voice.isNeural) {
+            Icon(
+              imageVector = Icons.Filled.AutoAwesome,
+              contentDescription = null,
+              tint = content,
+              modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+          }
+          Text(text = voice.label, style = MaterialTheme.typography.labelLarge, color = content)
+        }
+      }
+    }
   }
 }
 

@@ -24,6 +24,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -56,6 +57,15 @@ data class ChatMessage(val role: Role, val text: String, val isStreaming: Boolea
   }
 }
 
+/** A selectable voice for spoken replies (either the neural voice or a system TTS voice). */
+data class VoiceOption(
+  /** Stable id, e.g. "neural:kss" or "system:<voiceName>". */
+  val id: String,
+  val label: String,
+  val subtitle: String = "",
+  val isNeural: Boolean = false,
+)
+
 /** UI state for the Voice Assistant screen. */
 data class VoiceAssistantUiState(
   val messages: List<ChatMessage> = listOf(),
@@ -67,6 +77,10 @@ data class VoiceAssistantUiState(
   val topicTitle: String = "",
   val starters: List<String> = listOf(),
   val ttsReady: Boolean = false,
+  /** Available voices the user can pick from (neural + system Korean voices). */
+  val voices: List<VoiceOption> = listOf(),
+  /** The currently selected voice id. */
+  val selectedVoiceId: String = "",
 )
 
 @HiltViewModel
@@ -97,10 +111,15 @@ constructor(
 
   private var tts: TextToSpeech? = null
 
-  // Optional higher-quality Korean neural voice (sherpa-onnx). When loaded, it takes precedence
-  // over the system TextToSpeech engine. Played back through [AudioPlayer].
+  // Optional higher-quality Korean neural voice (sherpa-onnx). When loaded, it is offered as one of
+  // the selectable voices and played back through [AudioPlayer].
   private var neuralTts: OfflineTts? = null
   private val audioPlayer = AudioPlayer()
+
+  // Id used for the neural voice option.
+  private val neuralVoiceId = "neural:kss"
+  // System TTS voices (Korean), indexed by their VoiceOption id ("system:<voiceName>").
+  private val systemVoicesById = mutableMapOf<String, Voice>()
 
   init {
     // Resolve the entry topic into a prompt bundle for the title + starters. We intentionally peek
@@ -149,12 +168,86 @@ constructor(
                 }
               }
             )
+            collectSystemVoices(engine)
           }
           _uiState.update { it.copy(ttsReady = true) }
+          rebuildVoiceOptions()
         } else {
           Log.w(TAG, "TextToSpeech init failed with status $status")
         }
       }
+  }
+
+  /** Reads the available Korean system TTS voices and remembers them for selection. */
+  private fun collectSystemVoices(engine: TextToSpeech) {
+    systemVoicesById.clear()
+    try {
+      val target = speechLocale.language // e.g. "ko"
+      val koreanVoices =
+        engine.voices
+          ?.filter { it.locale?.language == target && !it.isNetworkConnectionRequired }
+          ?.sortedBy { it.name }
+          ?: emptyList()
+      for (voice in koreanVoices) {
+        systemVoicesById["system:${voice.name}"] = voice
+      }
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to read system voices", e)
+    }
+  }
+
+  /** Rebuilds the selectable voice list (neural + system) and ensures a valid selection. */
+  private fun rebuildVoiceOptions() {
+    val options = mutableListOf<VoiceOption>()
+    if (neuralTts != null) {
+      options.add(
+        VoiceOption(
+          id = neuralVoiceId,
+          label = "신경망 음성 (KSS)",
+          subtitle = "고품질·기기 독립",
+          isNeural = true,
+        )
+      )
+    }
+    var index = 1
+    for ((id, voice) in systemVoicesById) {
+      options.add(
+        VoiceOption(
+          id = id,
+          label = "시스템 음성 $index",
+          subtitle = voice.name,
+          isNeural = false,
+        )
+      )
+      index++
+    }
+
+    // Pick a default selection if none is set or the current one disappeared.
+    val current = _uiState.value.selectedVoiceId
+    val stillValid = options.any { it.id == current }
+    val selected =
+      when {
+        stillValid -> current
+        options.any { it.isNeural } -> neuralVoiceId
+        options.isNotEmpty() -> options.first().id
+        else -> ""
+      }
+    if (selected != current && selected.startsWith("system:")) {
+      systemVoicesById[selected]?.let { tts?.voice = it }
+    }
+    _uiState.update { it.copy(voices = options, selectedVoiceId = selected) }
+  }
+
+  /** Selects the voice to use for spoken replies. */
+  fun selectVoice(id: String) {
+    if (id == _uiState.value.selectedVoiceId) {
+      return
+    }
+    stopSpeaking()
+    if (id.startsWith("system:")) {
+      systemVoicesById[id]?.let { tts?.voice = it }
+    }
+    _uiState.update { it.copy(selectedVoiceId = id) }
   }
 
   // region Speech recognition (STT)
@@ -269,7 +362,13 @@ constructor(
       val engine = withContext(Dispatchers.IO) { KoreanNeuralTts.tryLoad(context, koreanTtsModel) }
       if (engine != null) {
         neuralTts = engine
-        Log.d(TAG, "Korean neural TTS loaded; using it for speech output.")
+        Log.d(TAG, "Korean neural TTS loaded; offering it as a voice option.")
+        // Make the neural voice the default and refresh the selectable list.
+        if (_uiState.value.selectedVoiceId.isEmpty() ||
+          _uiState.value.selectedVoiceId.startsWith("system:")) {
+          _uiState.update { it.copy(selectedVoiceId = neuralVoiceId) }
+        }
+        rebuildVoiceOptions()
       } else {
         Log.d(TAG, "Korean neural TTS not available; falling back to system TTS.")
       }
@@ -347,9 +446,12 @@ constructor(
   // region Text to speech (TTS)
 
   private fun speak(text: String) {
-    // Prefer the downloadable Korean neural voice when it has been loaded.
+    // Use whichever voice the user selected. The neural voice is used only when it is both selected
+    // and loaded; otherwise we speak with the system engine (which already has the chosen system
+    // voice applied via selectVoice/rebuildVoiceOptions).
+    val selectedId = _uiState.value.selectedVoiceId
     val engine = neuralTts
-    if (engine != null) {
+    if (engine != null && (selectedId == neuralVoiceId || selectedId.isEmpty())) {
       speakNeural(engine, text)
     } else {
       val system = tts ?: return
