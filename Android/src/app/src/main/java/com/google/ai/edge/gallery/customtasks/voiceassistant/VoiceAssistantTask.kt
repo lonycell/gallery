@@ -63,15 +63,15 @@ class VoiceAssistantTask(
   override val task: Task =
     Task(
       id = "speech_voice_assistant",
-      label = "Voice Assistant",
+      label = "음성 어시스턴트",
       category = SpeechCategory,
       icon = Icons.Outlined.GraphicEq,
       description =
-        "Have a hands-free, spoken conversation with an on-device AI. Speak naturally, watch the " +
-          "reply appear in real time, and hear it read back to you. You can also enter focused on " +
-          "a specific **topic or problem**, and the assistant will pull in a fitting set of " +
-          "instructions to guide the chat.",
-      shortDescription = "Talk with a spoken AI",
+        "온디바이스 AI와 손을 쓰지 않고 음성으로 대화하세요. 자연스럽게 말하면 답변이 실시간으로 " +
+          "화면에 나타나고 동시에 음성으로 읽어줍니다. 특정 **주제나 문제**에 집중한 상태로 들어올 " +
+          "수도 있으며, 이 경우 어시스턴트가 그 주제에 맞는 지시문을 불러와 대화를 이끕니다. 기본 " +
+          "언어는 한국어입니다.",
+      shortDescription = "음성으로 AI와 대화",
       sourceCodeUrl =
         "https://github.com/google-ai-edge/gallery/blob/main/Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/voiceassistant",
       newFeature = true,

@@ -218,10 +218,10 @@ fun VoiceAssistantScreen(
 
 private fun statusLabel(state: VoiceAssistantUiState): String =
   when {
-    state.isListening -> "Listening…"
-    state.isThinking -> "Thinking…"
-    state.isSpeaking -> "Speaking…"
-    else -> "Tap the mic and start talking"
+    state.isListening -> "듣고 있어요…"
+    state.isThinking -> "생각 중…"
+    state.isSpeaking -> "말하는 중…"
+    else -> "마이크를 누르고 말해보세요"
   }
 
 @Composable
@@ -314,7 +314,7 @@ private fun MicButton(isListening: Boolean, onClick: () -> Unit) {
     Box(contentAlignment = Alignment.Center) {
       Icon(
         imageVector = if (isListening) Icons.Filled.Stop else Icons.Filled.Mic,
-        contentDescription = if (isListening) "Stop listening" else "Start listening",
+        contentDescription = if (isListening) "듣기 중지" else "듣기 시작",
         tint = MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier.size(32.dp),
       )
@@ -334,7 +334,7 @@ private fun EmptyState(
     verticalArrangement = Arrangement.Top,
   ) {
     Text(
-      text = "Try saying…",
+      text = "이렇게 말해보세요…",
       style = MaterialTheme.typography.labelLarge,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

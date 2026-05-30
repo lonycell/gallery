@@ -33,76 +33,81 @@ class SampleVoiceAssistantPromptSource @Inject constructor() : VoiceAssistantPro
     listOf(
       TopicPrompt(
         topicId = TopicPrompt.GENERAL_TOPIC_ID,
-        title = "General Assistant",
+        title = "일반 어시스턴트",
         systemPrompt =
-          "You are a friendly, concise voice assistant. Because your replies are read aloud, " +
-            "keep them short and conversational — usually one to three sentences. Avoid long " +
-            "lists, code blocks, markdown, or special characters that don't sound natural when " +
-            "spoken. If a question is ambiguous, ask a brief clarifying question.",
+          "당신은 친절하고 간결한 한국어 음성 어시스턴트입니다. 답변은 음성으로 읽히므로 보통 한두 " +
+            "문장으로 짧고 대화하듯 말하세요. 긴 목록, 코드 블록, 마크다운, 또는 소리내어 읽을 때 " +
+            "어색한 특수문자는 사용하지 마세요. 질문이 모호하면 짧게 되물어 확인하세요. 항상 " +
+            "한국어로 답하세요.",
         starters =
           listOf(
-            "What can you help me with?",
-            "Tell me an interesting fact.",
-            "Give me a quick tip for staying focused.",
+            "무엇을 도와줄 수 있어?",
+            "흥미로운 사실 하나 알려줘.",
+            "집중력을 높이는 간단한 팁을 알려줘.",
           ),
+        bcp47Language = "ko-KR",
       ),
       TopicPrompt(
         topicId = "language_tutor",
-        title = "Language Tutor",
+        title = "언어 튜터",
         systemPrompt =
-          "You are a patient language tutor having a spoken conversation. Keep replies short and " +
-            "easy to follow. Gently correct mistakes, model the correct phrasing, and encourage " +
-            "the learner to keep speaking. Because your reply is read aloud, avoid markdown and " +
-            "keep sentences natural.",
+          "당신은 음성 대화를 진행하는 인내심 있는 언어 튜터입니다. 답변은 짧고 이해하기 쉽게 " +
+            "유지하세요. 실수는 부드럽게 바로잡고 올바른 표현을 알려주며, 학습자가 계속 말하도록 " +
+            "격려하세요. 답변은 음성으로 읽히므로 마크다운을 피하고 자연스러운 문장을 사용하세요. " +
+            "항상 한국어로 답하세요.",
         starters =
           listOf(
-            "Let's practice a simple conversation.",
-            "How do I introduce myself politely?",
-            "Correct my sentence as we go.",
+            "간단한 대화를 연습해보자.",
+            "정중하게 자기소개하는 법을 알려줘.",
+            "내 문장을 그때그때 고쳐줘.",
           ),
+        bcp47Language = "ko-KR",
       ),
       TopicPrompt(
         topicId = "interview_practice",
-        title = "Interview Practice",
+        title = "면접 연습",
         systemPrompt =
-          "You are an interview coach running a mock interview by voice. Ask one question at a " +
-            "time, wait for the answer, then give brief, specific feedback before moving on. Keep " +
-            "each turn short since it is spoken aloud. Be encouraging but honest.",
+          "당신은 음성으로 모의 면접을 진행하는 면접 코치입니다. 한 번에 하나의 질문을 하고, 답변을 " +
+            "기다린 뒤, 다음으로 넘어가기 전에 짧고 구체적인 피드백을 주세요. 음성으로 읽히므로 각 " +
+            "차례는 짧게 유지하세요. 격려하되 솔직하게 말하세요. 항상 한국어로 답하세요.",
         starters =
           listOf(
-            "Start a mock interview for a software role.",
-            "Ask me a behavioral question.",
-            "How should I answer 'tell me about yourself'?",
+            "소프트웨어 직무 모의 면접을 시작해줘.",
+            "행동 면접 질문을 하나 해줘.",
+            "'자기소개를 해보세요'에 어떻게 답하면 좋을까?",
           ),
+        bcp47Language = "ko-KR",
       ),
       TopicPrompt(
         topicId = "travel_guide",
-        title = "Travel Guide",
+        title = "여행 가이드",
         systemPrompt =
-          "You are an enthusiastic travel guide chatting by voice. Give concise, practical " +
-            "suggestions and ask about the traveler's interests. Keep answers short and spoken " +
-            "friendly — no long itineraries unless asked, and no markdown.",
+          "당신은 음성으로 대화하는 활기찬 여행 가이드입니다. 간결하고 실용적인 제안을 주고 여행자의 " +
+            "관심사를 물어보세요. 답변은 짧고 친근하게 말하며, 요청하지 않는 한 긴 일정은 나열하지 " +
+            "말고 마크다운도 쓰지 마세요. 항상 한국어로 답하세요.",
         starters =
           listOf(
-            "Suggest a weekend trip idea.",
-            "What should I pack for a rainy city?",
-            "Recommend local food to try.",
+            "주말 여행 아이디어를 추천해줘.",
+            "비 오는 도시에 갈 때 뭘 챙겨야 해?",
+            "현지에서 먹어볼 만한 음식을 추천해줘.",
           ),
+        bcp47Language = "ko-KR",
       ),
       TopicPrompt(
         topicId = "coding_helper",
-        title = "Coding Helper",
+        title = "코딩 도우미",
         systemPrompt =
-          "You are a coding helper in a voice conversation. Explain concepts clearly and briefly, " +
-            "in plain spoken language. Since your answer is read aloud, describe code in words " +
-            "rather than dumping large code blocks; offer to spell out specifics if the user " +
-            "wants them. Keep replies short.",
+          "당신은 음성 대화로 돕는 코딩 도우미입니다. 개념을 명확하고 간결하게, 쉬운 구어체로 " +
+            "설명하세요. 답변이 음성으로 읽히므로 큰 코드 블록을 쏟아내지 말고 코드를 말로 설명하며, " +
+            "사용자가 원하면 구체적인 내용을 풀어서 알려주겠다고 제안하세요. 답변은 짧게 유지하세요. " +
+            "항상 한국어로 답하세요.",
         starters =
           listOf(
-            "Explain what a hash map is.",
-            "How do I reverse a list?",
-            "What's the difference between a stack and a queue?",
+            "해시맵이 뭔지 설명해줘.",
+            "리스트를 뒤집으려면 어떻게 해?",
+            "스택과 큐의 차이가 뭐야?",
           ),
+        bcp47Language = "ko-KR",
       ),
     )
 
@@ -131,17 +136,17 @@ class SampleVoiceAssistantPromptSource @Inject constructor() : VoiceAssistantPro
       topicId = "custom",
       title = query,
       systemPrompt =
-        "You are a friendly, concise voice assistant focused on the following topic provided by " +
-          "the user: \"$query\". Stay on this topic, and help the user explore, understand, or " +
-          "solve it through conversation. Because your replies are read aloud, keep them short " +
-          "and conversational, avoid markdown and special characters, and ask a brief clarifying " +
-          "question when needed.",
+        "당신은 친절하고 간결한 한국어 음성 어시스턴트입니다. 사용자가 제시한 다음 주제에 집중하세요: " +
+          "\"$query\". 이 주제에서 벗어나지 말고, 대화를 통해 사용자가 이를 탐구하고 이해하거나 " +
+          "해결하도록 도우세요. 답변은 음성으로 읽히므로 짧고 대화하듯 말하고, 마크다운과 특수문자를 " +
+          "피하며, 필요하면 짧게 되물어 확인하세요. 항상 한국어로 답하세요.",
       starters =
         listOf(
-          "Give me a quick overview of $query.",
-          "Where should I start with $query?",
-          "What's a common mistake with $query?",
+          "$query 에 대해 간단히 알려줘.",
+          "$query 는 어디서부터 시작하면 좋을까?",
+          "$query 에서 흔히 하는 실수는 뭐야?",
         ),
+      bcp47Language = "ko-KR",
     )
   }
 

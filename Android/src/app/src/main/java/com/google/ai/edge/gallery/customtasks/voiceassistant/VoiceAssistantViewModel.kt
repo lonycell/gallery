@@ -77,7 +77,9 @@ constructor(
   val uiState = _uiState.asStateFlow()
 
   private var topicPrompt: TopicPrompt? = null
-  private var speechLocale: Locale = Locale.getDefault()
+  // The Voice Assistant defaults to Korean for both speech recognition and synthesis. A topic can
+  // override this via its bcp47Language.
+  private var speechLocale: Locale = Locale.KOREAN
 
   private val speechRecognizer: SpeechRecognizer? =
     if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -151,7 +153,7 @@ constructor(
   fun startListening() {
     val recognizer = speechRecognizer
     if (recognizer == null) {
-      _uiState.update { it.copy(error = "Speech recognition is not available on this device.") }
+      _uiState.update { it.copy(error = "이 기기에서는 음성 인식을 사용할 수 없습니다.") }
       return
     }
     if (uiState.value.isListening) {
@@ -172,7 +174,7 @@ constructor(
       recognizer.startListening(intent)
     } catch (e: Exception) {
       Log.e(TAG, "Failed to start listening", e)
-      _uiState.update { it.copy(isListening = false, error = "Couldn't start listening.") }
+      _uiState.update { it.copy(isListening = false, error = "듣기를 시작할 수 없습니다.") }
     }
   }
 
@@ -243,7 +245,7 @@ constructor(
   private fun submitUserInput(text: String, model: Model? = null) {
     val activeModel = model ?: pendingModel
     if (activeModel == null) {
-      _uiState.update { it.copy(error = "Model is not ready yet.") }
+      _uiState.update { it.copy(error = "모델이 아직 준비되지 않았습니다.") }
       return
     }
     // Append the user message and an empty streaming assistant message.
@@ -283,7 +285,7 @@ constructor(
         onError = { message ->
           Log.e(TAG, "Inference error: $message")
           _uiState.update {
-            it.copy(isThinking = false, error = message.ifEmpty { "Something went wrong." })
+            it.copy(isThinking = false, error = message.ifEmpty { "문제가 발생했습니다." })
           }
           updateStreamingAssistant(builder.toString(), streaming = false)
         },
@@ -291,7 +293,7 @@ constructor(
       )
     } catch (e: Exception) {
       Log.e(TAG, "Failed to run inference", e)
-      _uiState.update { it.copy(isThinking = false, error = e.message ?: "Inference failed.") }
+      _uiState.update { it.copy(isThinking = false, error = e.message ?: "추론에 실패했습니다.") }
       updateStreamingAssistant(builder.toString(), streaming = false)
     }
   }
