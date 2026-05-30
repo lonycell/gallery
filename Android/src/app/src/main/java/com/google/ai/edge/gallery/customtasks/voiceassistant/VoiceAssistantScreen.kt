@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,6 +48,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -57,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,6 +74,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
+import com.google.ai.edge.gallery.data.ModelDownloadStatus
+import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
@@ -89,11 +94,19 @@ fun VoiceAssistantScreen(
   // Keep the ViewModel pointed at the active, initialized model.
   LaunchedEffect(model.name) { viewModel.setActiveModel(model) }
 
-  // If the downloadable Korean neural voice has been installed (via the Text to Speech task), use
-  // it for higher-quality, device-independent Korean speech; otherwise the system TTS is used.
-  LaunchedEffect(Unit) {
-    val koreanTts = modelManagerViewModel.getModelByName(KOREAN_TTS_MODEL_NAME)
-    viewModel.enableNeuralTtsIfAvailable(koreanTts)
+  // The downloadable Korean neural voice (shared with the Text to Speech task) gives higher-quality,
+  // device-independent Korean speech than the system engine. Look it up and track its download
+  // status so we can both offer to download it and auto-enable it once it's ready.
+  val koreanTtsModel = remember { modelManagerViewModel.getModelByName(KOREAN_TTS_MODEL_NAME) }
+  val koreanTtsStatus =
+    koreanTtsModel?.let { modelManagerUiState.modelDownloadStatus[it.name] }
+  val koreanTtsDownloaded = koreanTtsStatus?.status == ModelDownloadStatusType.SUCCEEDED
+
+  // Enable the neural voice as soon as it is (or becomes) downloaded.
+  LaunchedEffect(koreanTtsDownloaded) {
+    if (koreanTtsDownloaded) {
+      viewModel.enableNeuralTtsIfAvailable(koreanTtsModel)
+    }
   }
 
   val micPermissionLauncher =
@@ -146,6 +159,15 @@ fun VoiceAssistantScreen(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
+
+      // Offer to download the high-quality Korean neural voice if it isn't installed yet.
+      if (koreanTtsModel != null && !koreanTtsDownloaded) {
+        Spacer(modifier = Modifier.height(10.dp))
+        KoreanVoiceBanner(
+          status = koreanTtsStatus,
+          onDownload = { modelManagerViewModel.downloadModel(task = null, model = koreanTtsModel) },
+        )
+      }
 
       Spacer(modifier = Modifier.height(12.dp))
 
@@ -305,6 +327,69 @@ private fun VoiceOrb(isListening: Boolean, isThinking: Boolean, isSpeaking: Bool
             )
           )
     )
+  }
+}
+
+/**
+ * A compact banner offering to download the high-quality Korean neural voice. Shows a progress
+ * indicator while downloading and an error (with retry) if it failed.
+ */
+@Composable
+private fun KoreanVoiceBanner(status: ModelDownloadStatus?, onDownload: () -> Unit) {
+  val inProgress =
+    status?.status == ModelDownloadStatusType.IN_PROGRESS ||
+      status?.status == ModelDownloadStatusType.PARTIALLY_DOWNLOADED ||
+      status?.status == ModelDownloadStatusType.UNZIPPING
+  val failed = status?.status == ModelDownloadStatusType.FAILED
+
+  Surface(
+    shape = RoundedCornerShape(14.dp),
+    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+    modifier = Modifier.fillMaxWidth(),
+  ) {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = "고품질 한국어 음성",
+          style = MaterialTheme.typography.bodyMedium,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+        )
+        val subtitle =
+          when {
+            inProgress -> {
+              val total = status?.totalBytes ?: 0L
+              val received = status?.receivedBytes ?: 0L
+              if (total > 0L) {
+                val pct = (received * 100 / total).toInt()
+                "다운로드 중… $pct%"
+              } else {
+                "다운로드 중…"
+              }
+            }
+            failed -> "다운로드 실패. 다시 시도하세요."
+            else -> "더 자연스러운 음성으로 들으려면 받아보세요 (약 64MB)."
+          }
+        Text(
+          text = subtitle,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      Spacer(modifier = Modifier.width(12.dp))
+      if (inProgress) {
+        CircularProgressIndicator(
+          modifier = Modifier.size(22.dp),
+          strokeWidth = 2.dp,
+          color = MaterialTheme.colorScheme.primary,
+        )
+      } else {
+        Button(onClick = onDownload) { Text(if (failed) "재시도" else "받기") }
+      }
+    }
   }
 }
 
