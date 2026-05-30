@@ -22,7 +22,9 @@ import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.runtime.Composable
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
+import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
+import com.google.ai.edge.gallery.customtasks.speech.extractTarBz2
 import com.google.ai.edge.gallery.data.Config
 import com.google.ai.edge.gallery.data.ConfigKey
 import com.google.ai.edge.gallery.data.Model
@@ -61,8 +63,19 @@ private val TTS_CONFIGS: List<Config> =
   )
 
 const val TTS_MODEL_VITS_LJSPEECH = "VITS-LJSpeech (en)"
+// Shared with the Voice Assistant (which can reuse this downloaded voice for neural Korean speech).
+const val TTS_MODEL_VITS_KSS_KO = KOREAN_TTS_MODEL_NAME
 
 private const val VITS_LJS_BASE_URL = "https://huggingface.co/csukuangfj/vits-ljs/resolve/main"
+
+// The Korean voice ships as a single .tar.bz2 bundle (it carries an espeak-ng-data directory), so
+// it is downloaded as one archive and unpacked on first initialization.
+private const val VITS_KSS_KO_ARCHIVE = "vits-mimic3-ko_KO-kss_low.tar.bz2"
+private const val VITS_KSS_KO_URL =
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$VITS_KSS_KO_ARCHIVE"
+// Directory (inside the archive) and file names after extraction.
+private const val VITS_KSS_KO_DIR = "vits-mimic3-ko_KO-kss_low"
+private const val VITS_KSS_KO_ONNX = "ko_KO-kss_low.onnx"
 
 /**
  * A custom task that performs on-device text-to-speech using `sherpa-onnx` VITS models.
@@ -114,7 +127,19 @@ class TtsTask @Inject constructor() : CustomTask {
                 ),
               ),
             configs = TTS_CONFIGS,
-          )
+          ),
+          Model(
+            name = TTS_MODEL_VITS_KSS_KO,
+            info =
+              "한국어 단일 화자 VITS 음성(KSS 데이터셋, mimic3에서 변환). espeak-ng 음소화 데이터를 " +
+                "포함해 하나의 압축 파일로 내려받은 뒤 기기에서 자동으로 해제합니다.",
+            learnMoreUrl = "https://huggingface.co/csukuangfj/vits-mimic3-ko_KO-kss_low",
+            url = VITS_KSS_KO_URL,
+            downloadFileName = VITS_KSS_KO_ARCHIVE,
+            // Size of the .tar.bz2 archive (used for the download progress bar).
+            sizeInBytes = 66838474L,
+            configs = TTS_CONFIGS,
+          ),
         ),
     )
 
@@ -128,27 +153,20 @@ class TtsTask @Inject constructor() : CustomTask {
     coroutineScope.launch(Dispatchers.IO) {
       cleanUp(model)
       try {
-        val modelPath = model.getPath(context = context)
-        val tokensPath = model.getPath(context = context, fileName = "tokens.txt")
-        val lexiconPath = model.getPath(context = context, fileName = "lexicon.txt")
-
-        for (path in listOf(modelPath, tokensPath, lexiconPath)) {
-          if (!File(path).exists()) {
-            onDone("Missing model file: $path")
-            return@launch
+        val vitsConfig =
+          when (model.name) {
+            TTS_MODEL_VITS_KSS_KO -> buildKoreanVitsConfig(context, model)
+            else -> buildLexiconVitsConfig(context, model)
           }
+        if (vitsConfig == null) {
+          onDone("Missing or incomplete model files for ${model.name}")
+          return@launch
         }
-
         val config =
           OfflineTtsConfig(
             model =
               OfflineTtsModelConfig(
-                vits =
-                  OfflineTtsVitsModelConfig(
-                    model = modelPath,
-                    lexicon = lexiconPath,
-                    tokens = tokensPath,
-                  ),
+                vits = vitsConfig,
                 numThreads = 2,
                 debug = false,
                 provider = "cpu",
@@ -160,6 +178,49 @@ class TtsTask @Inject constructor() : CustomTask {
         onDone(e.message ?: "Failed to initialize the TTS model")
       }
     }
+  }
+
+  /** Builds the VITS config for lexicon-based voices (e.g. the English LJSpeech model). */
+  private fun buildLexiconVitsConfig(context: Context, model: Model): OfflineTtsVitsModelConfig? {
+    val modelPath = model.getPath(context = context)
+    val tokensPath = model.getPath(context = context, fileName = "tokens.txt")
+    val lexiconPath = model.getPath(context = context, fileName = "lexicon.txt")
+    if (listOf(modelPath, tokensPath, lexiconPath).any { !File(it).exists() }) {
+      return null
+    }
+    return OfflineTtsVitsModelConfig(model = modelPath, lexicon = lexiconPath, tokens = tokensPath)
+  }
+
+  /**
+   * Builds the VITS config for the Korean voice. The model was downloaded as a single `.tar.bz2`;
+   * here we unpack it (once) and point sherpa-onnx at the extracted `.onnx`, `tokens.txt`, and the
+   * `espeak-ng-data` directory.
+   */
+  private fun buildKoreanVitsConfig(context: Context, model: Model): OfflineTtsVitsModelConfig? {
+    val archivePath = model.getPath(context = context)
+    val archiveFile = File(archivePath)
+    // Extract next to the archive, into a stable directory.
+    val baseDir = archiveFile.parentFile ?: return null
+    val extractedRoot = File(baseDir, VITS_KSS_KO_DIR)
+    val onnxFile = File(extractedRoot, VITS_KSS_KO_ONNX)
+    val tokensFile = File(extractedRoot, "tokens.txt")
+    val dataDir = File(extractedRoot, "espeak-ng-data")
+
+    // Unpack only if not already extracted.
+    if (!(onnxFile.exists() && tokensFile.exists() && dataDir.isDirectory)) {
+      if (!archiveFile.exists()) {
+        return null
+      }
+      val ok = extractTarBz2(archive = archiveFile, destDir = baseDir)
+      if (!ok || !onnxFile.exists() || !tokensFile.exists() || !dataDir.isDirectory) {
+        return null
+      }
+    }
+    return OfflineTtsVitsModelConfig(
+      model = onnxFile.absolutePath,
+      tokens = tokensFile.absolutePath,
+      dataDir = dataDir.absolutePath,
+    )
   }
 
   override fun cleanUpModelFn(

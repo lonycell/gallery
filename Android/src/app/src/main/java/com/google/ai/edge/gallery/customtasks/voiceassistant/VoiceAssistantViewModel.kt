@@ -27,18 +27,23 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.ai.edge.gallery.customtasks.speech.AudioPlayer
+import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralTts
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.TopicPrompt
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssistantPromptSource
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.runtime.runtimeHelper
+import com.k2fsa.sherpa.onnx.OfflineTts
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val TAG = "AGVoiceAssistant"
 private const val ASSISTANT_UTTERANCE_ID = "va_assistant_utterance"
@@ -91,6 +96,11 @@ constructor(
     }
 
   private var tts: TextToSpeech? = null
+
+  // Optional higher-quality Korean neural voice (sherpa-onnx). When loaded, it takes precedence
+  // over the system TextToSpeech engine. Played back through [AudioPlayer].
+  private var neuralTts: OfflineTts? = null
+  private val audioPlayer = AudioPlayer()
 
   init {
     // Resolve the entry topic into a prompt bundle for the title + starters. We intentionally peek
@@ -236,10 +246,34 @@ constructor(
   }
 
   private var pendingModel: Model? = null
+  private var neuralTtsRequested = false
 
   /** Lets the screen provide the currently selected (initialized) model. */
   fun setActiveModel(model: Model) {
     pendingModel = model
+  }
+
+  /**
+   * Asks the assistant to use the downloadable Korean neural voice for speech output, if available.
+   *
+   * The screen passes the Korean TTS [Model] (looked up from the model manager). If its files have
+   * been downloaded, we load the sherpa-onnx engine and speak with it; otherwise we silently keep
+   * using the system TextToSpeech engine. Loading happens once.
+   */
+  fun enableNeuralTtsIfAvailable(koreanTtsModel: Model?) {
+    if (neuralTtsRequested || koreanTtsModel == null) {
+      return
+    }
+    neuralTtsRequested = true
+    viewModelScope.launch {
+      val engine = withContext(Dispatchers.IO) { KoreanNeuralTts.tryLoad(context, koreanTtsModel) }
+      if (engine != null) {
+        neuralTts = engine
+        Log.d(TAG, "Korean neural TTS loaded; using it for speech output.")
+      } else {
+        Log.d(TAG, "Korean neural TTS not available; falling back to system TTS.")
+      }
+    }
   }
 
   private fun submitUserInput(text: String, model: Model? = null) {
@@ -313,8 +347,28 @@ constructor(
   // region Text to speech (TTS)
 
   private fun speak(text: String) {
-    val engine = tts ?: return
-    engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, ASSISTANT_UTTERANCE_ID)
+    // Prefer the downloadable Korean neural voice when it has been loaded.
+    val engine = neuralTts
+    if (engine != null) {
+      speakNeural(engine, text)
+    } else {
+      val system = tts ?: return
+      system.speak(text, TextToSpeech.QUEUE_FLUSH, null, ASSISTANT_UTTERANCE_ID)
+    }
+  }
+
+  private fun speakNeural(engine: OfflineTts, text: String) {
+    viewModelScope.launch {
+      _uiState.update { it.copy(isSpeaking = true) }
+      try {
+        val audio = withContext(Dispatchers.Default) { engine.generate(text = text, sid = 0, speed = 1.0f) }
+        audioPlayer.play(samples = audio.samples, sampleRate = audio.sampleRate)
+      } catch (e: Throwable) {
+        Log.w(TAG, "Neural TTS synthesis failed", e)
+      } finally {
+        _uiState.update { it.copy(isSpeaking = false) }
+      }
+    }
   }
 
   fun stopSpeaking() {
@@ -323,6 +377,7 @@ constructor(
     } catch (e: Exception) {
       Log.w(TAG, "Failed to stop TTS", e)
     }
+    audioPlayer.stop()
     _uiState.update { it.copy(isSpeaking = false) }
   }
 
@@ -351,6 +406,12 @@ constructor(
       tts?.shutdown()
     } catch (e: Exception) {
       Log.w(TAG, "Failed to shutdown TTS", e)
+    }
+    try {
+      audioPlayer.stop()
+      neuralTts?.release()
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to release neural TTS", e)
     }
   }
 }

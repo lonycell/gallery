@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
@@ -87,6 +88,13 @@ fun VoiceAssistantScreen(
 
   // Keep the ViewModel pointed at the active, initialized model.
   LaunchedEffect(model.name) { viewModel.setActiveModel(model) }
+
+  // If the downloadable Korean neural voice has been installed (via the Text to Speech task), use
+  // it for higher-quality, device-independent Korean speech; otherwise the system TTS is used.
+  LaunchedEffect(Unit) {
+    val koreanTts = modelManagerViewModel.getModelByName(KOREAN_TTS_MODEL_NAME)
+    viewModel.enableNeuralTtsIfAvailable(koreanTts)
+  }
 
   val micPermissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->

@@ -157,6 +157,9 @@ dependencies {
   implementation(libs.mcp.kotlin.sdk)
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.core)
+  // Used to extract the .tar.bz2 archives of speech models that ship as a directory bundle
+  // (e.g. the Korean VITS voice, which carries an espeak-ng-data directory).
+  implementation(libs.commons.compress)
   // sherpa-onnx native runtime for the Speech (TTS/STT) custom tasks. Resolved from the
   // flatDir repository against the AAR downloaded above into app/libs/.
   implementation(":sherpa-onnx-$sherpaOnnxVersion@aar")
