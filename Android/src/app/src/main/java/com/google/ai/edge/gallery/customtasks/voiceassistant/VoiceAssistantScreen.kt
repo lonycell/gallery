@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
+import com.google.ai.edge.gallery.customtasks.speech.NEURAL_STT_MODEL_NAME
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
@@ -104,6 +105,15 @@ fun VoiceAssistantScreen(
 
   LaunchedEffect(koreanTtsModel, koreanTtsStatus?.status, koreanTtsStatus?.receivedBytes) {
     viewModel.onKoreanTtsStatus(koreanTtsModel, koreanTtsStatus)
+  }
+
+  // The downloadable neural recognizer (SenseVoice, shared with the Speech to Text task) enables
+  // fully on-device speech input instead of the system SpeechRecognizer. Same pipeline as TTS.
+  val neuralSttModel = remember { modelManagerViewModel.getModelByName(NEURAL_STT_MODEL_NAME) }
+  val neuralSttStatus = neuralSttModel?.let { modelManagerUiState.modelDownloadStatus[it.name] }
+
+  LaunchedEffect(neuralSttModel, neuralSttStatus?.status, neuralSttStatus?.receivedBytes) {
+    viewModel.onNeuralSttStatus(neuralSttModel, neuralSttStatus)
   }
 
   val micPermissionLauncher =
@@ -183,6 +193,25 @@ fun VoiceAssistantScreen(
           voices = uiState.voices,
           selectedId = uiState.selectedVoiceId,
           onSelect = { viewModel.selectVoice(it) },
+        )
+      }
+
+      // STT engine picker (system vs neural) — only once the neural recognizer is ready.
+      if (uiState.neuralStt.stage == NeuralVoiceStage.READY) {
+        Spacer(modifier = Modifier.height(8.dp))
+        SttEnginePickerRow(
+          selected = uiState.sttEngine,
+          onSelect = { viewModel.selectSttEngine(it) },
+        )
+      }
+
+      // Neural recognizer status: download → init → ready, with progress and error recovery.
+      if (neuralSttModel != null && uiState.neuralStt.stage != NeuralVoiceStage.READY) {
+        Spacer(modifier = Modifier.height(10.dp))
+        NeuralSttBanner(
+          state = uiState.neuralStt,
+          onDownload = { modelManagerViewModel.downloadModel(task = null, model = neuralSttModel) },
+          onRetryPrepare = { viewModel.retryNeuralSttPreparation() },
         )
       }
 
@@ -382,6 +411,125 @@ private fun VoicePickerRow(
     }
   }
 }
+
+/** A two-option chip row for choosing the speech-recognition (input) engine. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SttEnginePickerRow(selected: SttEngine, onSelect: (SttEngine) -> Unit) {
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = "인식:",
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    SttEngineChip("시스템", selected == SttEngine.SYSTEM) { onSelect(SttEngine.SYSTEM) }
+    SttEngineChip("신경망", selected == SttEngine.NEURAL) { onSelect(SttEngine.NEURAL) }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SttEngineChip(label: String, selected: Boolean, onClick: () -> Unit) {
+  val container =
+    if (selected) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+  val content =
+    if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+  Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), color = container) {
+    Text(
+      text = label,
+      style = MaterialTheme.typography.labelLarge,
+      color = content,
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+  }
+}
+
+/** Download/preparation banner for the neural recognizer (mirrors [KoreanVoiceBanner]). */
+@Composable
+private fun NeuralSttBanner(
+  state: NeuralSttState,
+  onDownload: () -> Unit,
+  onRetryPrepare: () -> Unit,
+) {
+  Surface(
+    shape = RoundedCornerShape(14.dp),
+    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+    modifier = Modifier.fillMaxWidth(),
+  ) {
+    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = Icons.Filled.AutoAwesome,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "오프라인 음성 인식",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+          )
+          Text(
+            text = neuralSttSubtitle(state),
+            style = MaterialTheme.typography.bodySmall,
+            color =
+              if (state.stage == NeuralVoiceStage.ERROR) MaterialTheme.colorScheme.error
+              else MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        when (state.stage) {
+          NeuralVoiceStage.NOT_INSTALLED -> Button(onClick = onDownload) { Text("받기") }
+          NeuralVoiceStage.DOWNLOADING,
+          NeuralVoiceStage.PREPARING ->
+            CircularProgressIndicator(
+              modifier = Modifier.size(22.dp),
+              strokeWidth = 2.dp,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          NeuralVoiceStage.ERROR -> Button(onClick = onRetryPrepare) { Text("재시도") }
+          NeuralVoiceStage.READY -> {}
+        }
+      }
+      if (state.stage == NeuralVoiceStage.DOWNLOADING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        if (state.downloadPercent in 0..100) {
+          LinearProgressIndicator(
+            progress = { state.downloadPercent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+      } else if (state.stage == NeuralVoiceStage.PREPARING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+      }
+    }
+  }
+}
+
+private fun neuralSttSubtitle(state: NeuralSttState): String =
+  when (state.stage) {
+    NeuralVoiceStage.NOT_INSTALLED -> "인터넷 없이 기기에서 음성을 인식합니다 (약 239MB)."
+    NeuralVoiceStage.DOWNLOADING -> {
+      val pct = if (state.downloadPercent in 0..100) "${state.downloadPercent}%" else ""
+      val speed = if (state.bytesPerSecond > 0) " · ${formatSpeed(state.bytesPerSecond)}" else ""
+      val eta = if (state.remainingMs > 0) " · ${formatEta(state.remainingMs)} 남음" else ""
+      "다운로드 중 $pct$speed$eta".trim()
+    }
+    NeuralVoiceStage.PREPARING -> "음성 인식 모델 초기화 중…"
+    NeuralVoiceStage.ERROR -> state.error.ifEmpty { "오류가 발생했습니다." }
+    NeuralVoiceStage.READY -> "사용 준비 완료"
+  }
 
 /**
  * A banner that surfaces the full lifecycle of the high-quality Korean neural voice:

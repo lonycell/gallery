@@ -29,14 +29,19 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.customtasks.speech.AudioPlayer
+import com.google.ai.edge.gallery.customtasks.speech.AudioRecorder
+import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralStt
 import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralTts
 import com.google.ai.edge.gallery.customtasks.speech.KoreanTtsLoadResult
+import com.google.ai.edge.gallery.customtasks.speech.NeuralSttLoadResult
+import com.google.ai.edge.gallery.customtasks.speech.SPEECH_SAMPLE_RATE
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.TopicPrompt
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssistantPromptSource
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.runtime.runtimeHelper
+import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineTts
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -100,6 +105,23 @@ data class NeuralVoiceState(
   val error: String = "",
 )
 
+/** Which engine recognizes the user's speech (input). */
+enum class SttEngine {
+  /** The device's built-in [android.speech.SpeechRecognizer] (default; no download, low latency). */
+  SYSTEM,
+  /** The downloadable on-device neural recognizer (sherpa-onnx SenseVoice). */
+  NEURAL,
+}
+
+/** Detailed state of the downloadable neural speech recognizer (mirrors [NeuralVoiceState]). */
+data class NeuralSttState(
+  val stage: NeuralVoiceStage = NeuralVoiceStage.NOT_INSTALLED,
+  val downloadPercent: Int = -1,
+  val bytesPerSecond: Long = 0L,
+  val remainingMs: Long = 0L,
+  val error: String = "",
+)
+
 /** UI state for the Voice Assistant screen. */
 data class VoiceAssistantUiState(
   val messages: List<ChatMessage> = listOf(),
@@ -117,6 +139,10 @@ data class VoiceAssistantUiState(
   val selectedVoiceId: String = "",
   /** State of the downloadable Korean neural voice (download → unpack/init → ready/error). */
   val neuralVoice: NeuralVoiceState = NeuralVoiceState(),
+  /** Which engine is used to recognize the user's speech. */
+  val sttEngine: SttEngine = SttEngine.SYSTEM,
+  /** State of the downloadable neural speech recognizer (download → init → ready/error). */
+  val neuralStt: NeuralSttState = NeuralSttState(),
 )
 
 @HiltViewModel
@@ -151,6 +177,13 @@ constructor(
   // the selectable voices and played back through [AudioPlayer].
   private var neuralTts: OfflineTts? = null
   private val audioPlayer = AudioPlayer()
+
+  // Optional on-device neural speech recognizer (sherpa-onnx SenseVoice). When loaded and selected,
+  // it replaces the system SpeechRecognizer for input. Records raw PCM via [AudioRecorder].
+  private var neuralStt: OfflineRecognizer? = null
+  private val audioRecorder = AudioRecorder(sampleRate = SPEECH_SAMPLE_RATE)
+  private var sttModel: Model? = null
+  private var preparingStt = false
 
   // Id used for the neural voice option.
   private val neuralVoiceId = "neural:kss"
@@ -290,17 +323,23 @@ constructor(
 
   /** Starts listening to the microphone. The caller must already hold RECORD_AUDIO permission. */
   fun startListening() {
-    val recognizer = speechRecognizer
-    if (recognizer == null) {
-      _uiState.update { it.copy(error = "이 기기에서는 음성 인식을 사용할 수 없습니다.") }
-      return
-    }
     if (uiState.value.isListening) {
       return
     }
     // Stop any ongoing speech so the assistant doesn't hear itself.
     stopSpeaking()
 
+    // Use the neural recognizer only when it's selected AND ready; otherwise system recognizer.
+    if (_uiState.value.sttEngine == SttEngine.NEURAL && neuralStt != null) {
+      startNeuralListening()
+      return
+    }
+
+    val recognizer = speechRecognizer
+    if (recognizer == null) {
+      _uiState.update { it.copy(error = "이 기기에서는 음성 인식을 사용할 수 없습니다.") }
+      return
+    }
     val intent =
       Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -317,9 +356,13 @@ constructor(
     }
   }
 
-  /** Stops listening; final results arrive via [onResults]. */
+  /** Stops listening; final results arrive via [onResults] (system) or are decoded (neural). */
   fun stopListening() {
     if (!uiState.value.isListening) {
+      return
+    }
+    if (usingNeuralCapture) {
+      stopNeuralListeningAndTranscribe()
       return
     }
     try {
@@ -328,6 +371,48 @@ constructor(
       Log.w(TAG, "Failed to stop listening", e)
     }
     _uiState.update { it.copy(isListening = false) }
+  }
+
+  // Whether the in-progress capture is using the neural recorder (vs the system recognizer).
+  private var usingNeuralCapture = false
+
+  private fun startNeuralListening() {
+    try {
+      audioRecorder.start()
+      usingNeuralCapture = true
+      _uiState.update { it.copy(isListening = true, partialTranscript = "", error = "") }
+    } catch (e: Throwable) {
+      Log.e(TAG, "Failed to start neural recording", e)
+      usingNeuralCapture = false
+      _uiState.update { it.copy(isListening = false, error = "녹음을 시작할 수 없습니다.") }
+    }
+  }
+
+  private fun stopNeuralListeningAndTranscribe() {
+    usingNeuralCapture = false
+    val samples = audioRecorder.stop()
+    _uiState.update { it.copy(isListening = false) }
+    val engine = neuralStt
+    if (engine == null || samples.isEmpty()) {
+      return
+    }
+    viewModelScope.launch {
+      val text =
+        withContext(Dispatchers.Default) {
+          val stream = engine.createStream()
+          try {
+            stream.acceptWaveform(samples = samples, sampleRate = SPEECH_SAMPLE_RATE)
+            engine.decode(stream)
+            engine.getResult(stream).text
+          } finally {
+            stream.release()
+          }
+        }
+      val trimmed = text.trim()
+      if (trimmed.isNotEmpty()) {
+        submitUserInput(trimmed)
+      }
+    }
   }
 
   override fun onReadyForSpeech(params: Bundle?) {}
@@ -502,6 +587,103 @@ constructor(
     _uiState.update { it.copy(neuralVoice = state) }
   }
 
+  // region Neural STT (optional, downloadable) — mirrors the neural TTS pipeline.
+
+  /**
+   * Feeds the latest download state of the neural recognizer (SenseVoice) from the screen and drives
+   * its preparation (download → init → ready), exposed via [uiState] like the neural voice.
+   */
+  fun onNeuralSttStatus(model: Model?, downloadStatus: ModelDownloadStatus?) {
+    sttModel = model
+    if (model == null) {
+      updateSttStage(NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
+      return
+    }
+    if (neuralStt != null) {
+      return
+    }
+    when (downloadStatus?.status) {
+      ModelDownloadStatusType.IN_PROGRESS,
+      ModelDownloadStatusType.PARTIALLY_DOWNLOADED,
+      ModelDownloadStatusType.UNZIPPING -> {
+        val total = downloadStatus.totalBytes
+        val received = downloadStatus.receivedBytes
+        val pct = if (total > 0L) (received * 100 / total).toInt() else -1
+        updateSttStage(
+          NeuralSttState(
+            stage = NeuralVoiceStage.DOWNLOADING,
+            downloadPercent = pct,
+            bytesPerSecond = downloadStatus.bytesPerSecond,
+            remainingMs = downloadStatus.remainingMs,
+          )
+        )
+      }
+      ModelDownloadStatusType.SUCCEEDED -> prepareNeuralStt(model)
+      ModelDownloadStatusType.FAILED ->
+        updateSttStage(
+          NeuralSttState(
+            stage = NeuralVoiceStage.ERROR,
+            error = downloadStatus.errorMessage.ifEmpty { "다운로드에 실패했습니다." },
+          )
+        )
+      else ->
+        if (!preparingStt && _uiState.value.neuralStt.stage != NeuralVoiceStage.PREPARING) {
+          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
+        }
+    }
+  }
+
+  private fun prepareNeuralStt(model: Model) {
+    if (preparingStt || neuralStt != null) {
+      return
+    }
+    preparingStt = true
+    updateSttStage(NeuralSttState(stage = NeuralVoiceStage.PREPARING))
+    viewModelScope.launch {
+      val langHint = if (speechLocale.language == "ko") "ko" else "auto"
+      val result =
+        withContext(Dispatchers.IO) {
+          KoreanNeuralStt.load(context = context, model = model, languageHint = langHint)
+        }
+      when (result) {
+        is NeuralSttLoadResult.Success -> {
+          neuralStt = result.recognizer
+          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.READY))
+          Log.d(TAG, "Neural STT ready.")
+        }
+        is NeuralSttLoadResult.NotDownloaded ->
+          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
+        is NeuralSttLoadResult.Failure ->
+          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.ERROR, error = result.message))
+      }
+      preparingStt = false
+    }
+  }
+
+  /** Retries preparing the neural recognizer after a failure (reuses the downloaded files). */
+  fun retryNeuralSttPreparation() {
+    val model = sttModel ?: return
+    prepareNeuralStt(model)
+  }
+
+  /** Selects which engine recognizes the user's speech. Neural is only honored once it's READY. */
+  fun selectSttEngine(engine: SttEngine) {
+    if (engine == _uiState.value.sttEngine) {
+      return
+    }
+    // Don't switch while actively listening.
+    if (uiState.value.isListening) {
+      stopListening()
+    }
+    _uiState.update { it.copy(sttEngine = engine) }
+  }
+
+  private fun updateSttStage(state: NeuralSttState) {
+    _uiState.update { it.copy(neuralStt = state) }
+  }
+
+  // endregion
+
   private fun submitUserInput(text: String, model: Model? = null) {
     val activeModel = model ?: pendingModel
     if (activeModel == null) {
@@ -641,6 +823,14 @@ constructor(
       neuralTts?.release()
     } catch (e: Exception) {
       Log.w(TAG, "Failed to release neural TTS", e)
+    }
+    try {
+      if (audioRecorder.isRecording()) {
+        audioRecorder.stop()
+      }
+      neuralStt?.release()
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to release neural STT", e)
     }
   }
 }

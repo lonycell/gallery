@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Transcribe
 import androidx.compose.runtime.Composable
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
+import com.google.ai.edge.gallery.customtasks.speech.NEURAL_STT_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.SPEECH_SAMPLE_RATE
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
 import com.google.ai.edge.gallery.data.Config
@@ -61,7 +62,8 @@ private val SENSE_VOICE_CONFIGS: List<Config> =
     )
   )
 
-const val STT_MODEL_SENSE_VOICE = "SenseVoice (multilingual)"
+// Shared with the Voice Assistant (which can reuse this downloaded recognizer for neural STT).
+const val STT_MODEL_SENSE_VOICE = NEURAL_STT_MODEL_NAME
 const val STT_MODEL_WHISPER_TINY_EN = "Whisper-tiny (en)"
 
 private const val SENSE_VOICE_BASE_URL =
