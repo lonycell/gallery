@@ -28,6 +28,11 @@ import android.speech.tts.Voice
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.ai.edge.gallery.common.AgentAction
+import com.google.ai.edge.gallery.common.AskMcpToolCallPermissionAction
+import com.google.ai.edge.gallery.common.PermissionResult
+import com.google.ai.edge.gallery.common.SkillProgressAgentAction
+import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.speech.AudioPlayer
 import com.google.ai.edge.gallery.customtasks.speech.AudioRecorder
 import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralStt
@@ -143,6 +148,10 @@ data class VoiceAssistantUiState(
   val sttEngine: SttEngine = SttEngine.SYSTEM,
   /** State of the downloadable neural speech recognizer (download → init → ready/error). */
   val neuralStt: NeuralSttState = NeuralSttState(),
+  /** Number of connected/enabled MCP tools currently available to the assistant. */
+  val mcpToolCount: Int = 0,
+  /** A short status line shown while the assistant is invoking a tool (empty when idle). */
+  val toolActivity: String = "",
 )
 
 @HiltViewModel
@@ -184,6 +193,12 @@ constructor(
   private val audioRecorder = AudioRecorder(sampleRate = SPEECH_SAMPLE_RATE)
   private var sttModel: Model? = null
   private var preparingStt = false
+
+  // Tool / MCP integration (shared with Agent Skills). Set by the screen via [attachAgentTools].
+  private var agentTools: AgentTools? = null
+  // Pending MCP tool-call permission request awaiting the user's decision (drives a dialog).
+  private val _mcpPermissionRequest = MutableStateFlow<AskMcpToolCallPermissionAction?>(null)
+  val mcpPermissionRequest = _mcpPermissionRequest.asStateFlow()
 
   // Id used for the neural voice option.
   private val neuralVoiceId = "neural:kss"
@@ -680,6 +695,59 @@ constructor(
 
   private fun updateSttStage(state: NeuralSttState) {
     _uiState.update { it.copy(neuralStt = state) }
+  }
+
+  // endregion
+
+  // region Tools / MCP
+
+  /**
+   * Attaches the shared [AgentTools] (already wired with skill/MCP managers by the screen) and
+   * starts consuming its action channel so MCP tool-call permission prompts and progress are
+   * surfaced. Safe to call repeatedly; only the first call starts the collector.
+   */
+  fun attachAgentTools(tools: AgentTools) {
+    if (agentTools === tools) {
+      return
+    }
+    agentTools = tools
+    viewModelScope.launch {
+      for (action in tools.actionChannel) {
+        handleAgentAction(action)
+      }
+    }
+  }
+
+  private fun handleAgentAction(action: AgentAction) {
+    when (action) {
+      is AskMcpToolCallPermissionAction -> {
+        // Surface a permission dialog; the screen completes action.result via [resolveMcpPermission].
+        _mcpPermissionRequest.value = action
+      }
+      is SkillProgressAgentAction -> {
+        // Reflect tool activity as a short status line; clear it when the step finishes.
+        _uiState.update {
+          it.copy(toolActivity = if (action.inProgress) action.label else "")
+        }
+      }
+      else -> {
+        // Other actions (JS skills, intents, ask-info) aren't used by the voice flow.
+      }
+    }
+  }
+
+  /** Completes a pending MCP tool-call permission request with the user's choice. */
+  fun resolveMcpPermission(result: PermissionResult) {
+    val pending = _mcpPermissionRequest.value ?: return
+    pending.result.complete(result)
+    _mcpPermissionRequest.value = null
+  }
+
+  /** Updates the count of available MCP tools (drives the "tools available" UI). */
+  fun setMcpToolCount(count: Int) {
+    if (count != _uiState.value.mcpToolCount) {
+      _uiState.update { it.copy(mcpToolCount = count) }
+    }
   }
 
   // endregion

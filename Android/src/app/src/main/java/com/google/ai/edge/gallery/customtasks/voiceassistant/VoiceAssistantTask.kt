@@ -20,6 +20,7 @@ import android.content.Context
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.runtime.Composable
+import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
@@ -29,6 +30,7 @@ import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -59,6 +61,10 @@ class VoiceAssistantTask(
   private val promptSource: VoiceAssistantPromptSource,
   private val entryParams: VoiceAssistantEntryParams,
 ) : CustomTask {
+
+  // Shared tool/skill/MCP surface (same implementation Agent Skills uses). Its lateinit view models
+  // (skill/MCP managers, context, taskId) are assigned by VoiceAssistantScreen before init runs.
+  val agentTools = AgentTools()
 
   override val task: Task =
     Task(
@@ -96,8 +102,30 @@ class VoiceAssistantTask(
         } catch (e: Exception) {
           null
         }
+      val basePrompt = prompt?.systemPrompt ?: ""
+
+      // If MCP tools are connected, advertise them in the system prompt and enable function calling.
+      // The screen assigns agentTools' view models before this runs; guard in case it hasn't.
+      val toolsPrompt =
+        try {
+          agentTools.mcpManagerViewModel.loadMcpServers()
+          agentTools.mcpManagerViewModel.getToolsPrompt()
+        } catch (e: Exception) {
+          ""
+        }
+      val hasTools = toolsPrompt.isNotEmpty()
+
+      val finalPrompt =
+        if (hasTools) {
+          (if (basePrompt.isNotEmpty()) basePrompt + "\n\n" else "") +
+            "다음 도구들을 사용할 수 있습니다. 사용자의 요청을 처리하려면 적절한 도구를 " +
+            "`runMcpTool`로 호출하세요. 도구 이름은 아래 목록에서 정확히 사용하세요.\n\n" +
+            toolsPrompt
+        } else {
+          basePrompt
+        }
       val instruction: Contents? =
-        prompt?.let { Contents.of(listOf(Content.Text(it.systemPrompt))) }
+        if (finalPrompt.isNotEmpty()) Contents.of(listOf(Content.Text(finalPrompt))) else null
 
       LlmChatModelHelper.initialize(
         context = context,
@@ -107,6 +135,8 @@ class VoiceAssistantTask(
         supportAudio = false,
         onDone = onDone,
         systemInstruction = instruction,
+        tools = if (hasTools) listOf(tool(agentTools)) else listOf(),
+        enableConversationConstrainedDecoding = hasTools,
       )
     }
   }
@@ -126,6 +156,7 @@ class VoiceAssistantTask(
     VoiceAssistantScreen(
       task = task,
       modelManagerViewModel = customTaskData.modelManagerViewModel,
+      agentTools = agentTools,
     )
   }
 }

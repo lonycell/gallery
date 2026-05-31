@@ -51,6 +51,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Construction
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,7 +64,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,6 +80,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.ai.edge.gallery.common.PermissionResult
+import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
+import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerBottomSheet
+import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
+import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDialog
+import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.NEURAL_STT_MODEL_NAME
 import com.google.ai.edge.gallery.data.Task
@@ -87,12 +96,56 @@ import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 fun VoiceAssistantScreen(
   task: Task,
   modelManagerViewModel: ModelManagerViewModel,
+  agentTools: AgentTools,
   viewModel: VoiceAssistantViewModel = hiltViewModel(),
+  skillManagerViewModel: SkillManagerViewModel = hiltViewModel(),
+  mcpManagerViewModel: McpManagerViewModel = hiltViewModel(),
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
   val model = modelManagerUiState.selectedModel
   val uiState by viewModel.uiState.collectAsState()
   val context = LocalContext.current
+
+  // Wire the shared tool surface (skills + MCP) before the model initializes, mirroring AgentChat.
+  agentTools.context = context
+  agentTools.skillManagerViewModel = skillManagerViewModel
+  agentTools.mcpManagerViewModel = mcpManagerViewModel
+  agentTools.taskId = task.id
+  LaunchedEffect(Unit) { viewModel.attachAgentTools(agentTools) }
+
+  // Track how many MCP tools are connected/enabled so the UI can offer connecting them and so we can
+  // re-initialize the model (to enable function calling) once tools become available.
+  val mcpUiState by mcpManagerViewModel.uiState.collectAsState()
+  val mcpToolCount =
+    mcpUiState.mcpServers
+      .filter { it.mcpServer.enabled }
+      .sumOf { server -> server.mcpServer.toolsList.count { it.enabled } }
+  LaunchedEffect(mcpToolCount) { viewModel.setMcpToolCount(mcpToolCount) }
+
+  // Pending MCP tool-call permission dialog.
+  val mcpPermission by viewModel.mcpPermissionRequest.collectAsState()
+  mcpPermission?.let { action ->
+    McpToolCallPermissionDialog(
+      toolName = action.toolName,
+      argument = action.argument,
+      onResult = { result ->
+        if (result == PermissionResult.ALWAYS_ALLOW) {
+          mcpManagerViewModel.uiState.value.mcpServers
+            .find { s -> s.mcpServer.toolsList.any { it.name == action.toolName } }
+            ?.mcpServer
+            ?.url
+            ?.let { url ->
+              mcpManagerViewModel.setMcpToolAlwaysAllow(
+                url = url,
+                toolName = action.toolName,
+                alwaysAllow = true,
+              )
+            }
+        }
+        viewModel.resolveMcpPermission(result)
+      },
+    )
+  }
 
   // Keep the ViewModel pointed at the active, initialized model.
   LaunchedEffect(model.name) { viewModel.setActiveModel(model) }
@@ -122,6 +175,36 @@ fun VoiceAssistantScreen(
         viewModel.startListening()
       }
     }
+
+  var showMcpSheet by remember { mutableStateOf(false) }
+
+  // When the set of connected MCP tools *changes* (not on first composition), reinitialize the
+  // selected model so the system prompt + function-calling tools reflect the current tools.
+  var lastToolCount by remember { mutableStateOf(mcpToolCount) }
+  LaunchedEffect(mcpToolCount, model.name) {
+    if (
+      mcpToolCount != lastToolCount &&
+        model.name.isNotEmpty() &&
+        modelManagerUiState.isModelInitialized(model)
+    ) {
+      lastToolCount = mcpToolCount
+      modelManagerViewModel.initializeModel(
+        context = context,
+        task = task,
+        model = model,
+        force = true,
+      )
+    } else {
+      lastToolCount = mcpToolCount
+    }
+  }
+
+  if (showMcpSheet) {
+    McpManagerBottomSheet(
+      mcpManagerViewModel = mcpManagerViewModel,
+      onDismiss = { showMcpSheet = false },
+    )
+  }
 
   // Cosmic gradient backdrop for a futuristic feel.
   val isDark = isSystemInDarkTheme()
@@ -214,6 +297,15 @@ fun VoiceAssistantScreen(
           onRetryPrepare = { viewModel.retryNeuralSttPreparation() },
         )
       }
+
+      // Tools / MCP: show how many tools are connected and let the user manage connections. When
+      // tools are available, reinitialize the model so function calling is enabled.
+      Spacer(modifier = Modifier.height(8.dp))
+      ToolsBanner(
+        toolCount = uiState.mcpToolCount,
+        toolActivity = uiState.toolActivity,
+        onManage = { showMcpSheet = true },
+      )
 
       Spacer(modifier = Modifier.height(8.dp))
 
@@ -530,6 +622,67 @@ private fun neuralSttSubtitle(state: NeuralSttState): String =
     NeuralVoiceStage.ERROR -> state.error.ifEmpty { "오류가 발생했습니다." }
     NeuralVoiceStage.READY -> "사용 준비 완료"
   }
+
+/**
+ * Banner advertising tool/MCP availability. When no tools are connected it invites the user to
+ * connect MCP servers; when tools are available it shows the count and any in-progress tool call.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ToolsBanner(toolCount: Int, toolActivity: String, onManage: () -> Unit) {
+  Surface(
+    onClick = onManage,
+    shape = RoundedCornerShape(14.dp),
+    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+    modifier = Modifier.fillMaxWidth(),
+  ) {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+      Icon(
+        imageVector = Icons.Outlined.Construction,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(18.dp),
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = "도구 · MCP",
+          style = MaterialTheme.typography.bodyMedium,
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface,
+        )
+        val subtitle =
+          when {
+            toolActivity.isNotEmpty() -> toolActivity
+            toolCount > 0 -> "사용 가능한 도구 $toolCount개 · 탭하여 관리"
+            else -> "도구가 필요하면 MCP 서버를 연결하세요"
+          }
+        Text(
+          text = subtitle,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      Spacer(modifier = Modifier.width(12.dp))
+      if (toolActivity.isNotEmpty()) {
+        CircularProgressIndicator(
+          modifier = Modifier.size(20.dp),
+          strokeWidth = 2.dp,
+          color = MaterialTheme.colorScheme.primary,
+        )
+      } else {
+        Text(
+          text = if (toolCount > 0) "관리" else "연결",
+          style = MaterialTheme.typography.labelLarge,
+          color = MaterialTheme.colorScheme.primary,
+        )
+      }
+    }
+  }
+}
 
 /**
  * A banner that surfaces the full lifecycle of the high-quality Korean neural voice:
