@@ -456,7 +456,14 @@ private fun KoreanVoiceBanner(
         }
       } else if (state.stage == NeuralVoiceStage.PREPARING) {
         Spacer(modifier = Modifier.height(8.dp))
-        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        if (state.unpackPercent in 0..100) {
+          LinearProgressIndicator(
+            progress = { state.unpackPercent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
       }
     }
   }
@@ -472,7 +479,10 @@ private fun neuralVoiceSubtitle(state: NeuralVoiceState): String =
       val eta = if (state.remainingMs > 0) " · ${formatEta(state.remainingMs)} 남음" else ""
       "다운로드 중 $pct$speed$eta".trim()
     }
-    NeuralVoiceStage.PREPARING -> "음성 데이터 준비 중… (압축 해제 및 초기화)"
+    NeuralVoiceStage.PREPARING -> {
+      if (state.unpackPercent in 0..100) "압축 해제 중… ${state.unpackPercent}%"
+      else "음성 데이터 준비 중… (압축 해제 및 초기화)"
+    }
     NeuralVoiceStage.ERROR -> state.error.ifEmpty { "오류가 발생했습니다." }
     NeuralVoiceStage.READY -> "사용 준비 완료"
   }

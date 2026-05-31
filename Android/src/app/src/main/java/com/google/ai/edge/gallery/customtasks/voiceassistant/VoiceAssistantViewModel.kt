@@ -95,6 +95,8 @@ data class NeuralVoiceState(
   val totalBytes: Long = 0L,
   val bytesPerSecond: Long = 0L,
   val remainingMs: Long = 0L,
+  /** 0..100 while unpacking during PREPARING, or -1 before unpack progress is known. */
+  val unpackPercent: Int = -1,
   val error: String = "",
 )
 
@@ -445,9 +447,21 @@ constructor(
       return
     }
     preparing = true
-    updateNeuralStage(NeuralVoiceState(stage = NeuralVoiceStage.PREPARING))
+    updateNeuralStage(NeuralVoiceState(stage = NeuralVoiceStage.PREPARING, unpackPercent = -1))
     viewModelScope.launch {
-      val result = withContext(Dispatchers.IO) { KoreanNeuralTts.load(context, model) }
+      val result =
+        withContext(Dispatchers.IO) {
+          KoreanNeuralTts.load(
+            context = context,
+            model = model,
+            onUnpackProgress = { pct ->
+              // Reflect unpack progress on the UI (only meaningful when an extraction runs).
+              updateNeuralStage(
+                NeuralVoiceState(stage = NeuralVoiceStage.PREPARING, unpackPercent = pct)
+              )
+            },
+          )
+        }
       when (result) {
         is KoreanTtsLoadResult.Success -> {
           neuralTts = result.tts

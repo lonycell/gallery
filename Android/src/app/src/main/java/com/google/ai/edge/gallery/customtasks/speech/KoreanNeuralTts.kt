@@ -37,18 +37,11 @@ private const val KOREAN_TTS_DIR = "vits-mimic3-ko_KO-kss_low"
 private const val KOREAN_TTS_ONNX = "ko_KO-kss_low.onnx"
 
 /**
- * Loads the downloadable Korean VITS voice (shared with the Text to Speech task) as a `sherpa-onnx`
- * [OfflineTts] engine, for callers that want higher-quality, device-independent Korean speech than
- * the system TextToSpeech engine.
- *
- * The voice ships as a `.tar.bz2` bundle (it carries an `espeak-ng-data` directory). This helper
- * assumes the archive has already been downloaded through the app's standard mechanism and, if
- * needed, extracts it before constructing the engine.
- *
- * @return an [OfflineTts] ready to synthesize Korean, or `null` if the model hasn't been downloaded
- *   yet (or extraction/initialization failed). A `null` result is the caller's cue to fall back to
- *   the system TextToSpeech engine.
+ * Approximate number of entries in the Korean voice's `.tar.bz2` archive. A tar stream doesn't
+ * expose a total up front, so this known value is used to render an unpack progress percentage.
  */
+const val KOREAN_TTS_ARCHIVE_ENTRY_COUNT = 399
+
 /** The outcome of attempting to prepare/load the Korean neural voice. */
 sealed interface KoreanTtsLoadResult {
   /** Engine is ready. */
@@ -70,8 +63,17 @@ object KoreanNeuralTts {
    *
    * This may take noticeable time (the archive is ~64MB and unpacks hundreds of files), so it must
    * be called off the main thread.
+   *
+   * @param onUnpackProgress optional callback (0..100) reporting unpack progress. Only invoked when
+   *   an extraction actually runs (skipped if already unpacked).
+   * @param warmUp if true, runs a tiny synthesis after init so the first real reply is snappy.
    */
-  fun load(context: Context, model: Model): KoreanTtsLoadResult {
+  fun load(
+    context: Context,
+    model: Model,
+    onUnpackProgress: ((percent: Int) -> Unit)? = null,
+    warmUp: Boolean = true,
+  ): KoreanTtsLoadResult {
     return try {
       val archiveFile = File(model.getPath(context = context))
       val baseDir = archiveFile.parentFile
@@ -90,7 +92,13 @@ object KoreanNeuralTts {
         if (extractedRoot.exists()) {
           extractedRoot.deleteRecursively()
         }
-        val ok = extractTarBz2(archive = archiveFile, destDir = baseDir)
+        val ok =
+          extractTarBz2(archive = archiveFile, destDir = baseDir) { processed ->
+            if (onUnpackProgress != null) {
+              val pct = (processed * 100 / KOREAN_TTS_ARCHIVE_ENTRY_COUNT).coerceIn(0, 100)
+              onUnpackProgress(pct)
+            }
+          }
         if (!ok || !onnxFile.exists() || !tokensFile.exists() || !dataDir.isDirectory) {
           // The archive may be corrupt/incomplete; recoverable by deleting it and re-downloading.
           return KoreanTtsLoadResult.Failure(
@@ -115,7 +123,20 @@ object KoreanNeuralTts {
               provider = "cpu",
             )
         )
-      KoreanTtsLoadResult.Success(OfflineTts(config = config))
+      val engine = OfflineTts(config = config)
+
+      // Warm up: the very first synthesis pays a one-time cost (graph setup, espeak data load).
+      // Generating a tiny phrase now makes the first real reply feel instant. The audio is
+      // discarded. Failures here are non-fatal.
+      if (warmUp) {
+        try {
+          engine.generate(text = "안녕", sid = 0, speed = 1.0f)
+        } catch (e: Throwable) {
+          Log.w(TAG, "Warm-up synthesis failed (non-fatal)", e)
+        }
+      }
+
+      KoreanTtsLoadResult.Success(engine)
     } catch (e: Throwable) {
       Log.w(TAG, "Failed to load Korean neural TTS", e)
       KoreanTtsLoadResult.Failure(e.message ?: "음성 초기화에 실패했습니다.", recoverable = true)

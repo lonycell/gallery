@@ -37,9 +37,16 @@ private const val TAG = "AGSpeechArchive"
  * Extraction is guarded against path traversal ("zip slip"): any entry that would resolve outside
  * [destDir] is skipped.
  *
+ * @param onProgress optional callback invoked after each entry is written, with the number of
+ *   entries processed so far. A tar stream doesn't carry a total up front, so the caller supplies an
+ *   expected total (see [expectedEntryCount]) to turn this into a percentage.
  * @return true if extraction completed (or was already complete), false on failure.
  */
-fun extractTarBz2(archive: File, destDir: File): Boolean {
+fun extractTarBz2(
+  archive: File,
+  destDir: File,
+  onProgress: ((entriesProcessed: Int) -> Unit)? = null,
+): Boolean {
   if (!archive.exists()) {
     Log.e(TAG, "Archive does not exist: ${archive.absolutePath}")
     return false
@@ -55,6 +62,7 @@ fun extractTarBz2(archive: File, destDir: File): Boolean {
       )
       .use { tar ->
         val buffer = ByteArray(8192)
+        var processed = 0
         var entry = tar.nextEntry
         while (entry != null) {
           val outFile = File(canonicalDest, entry.name)
@@ -75,6 +83,8 @@ fun extractTarBz2(archive: File, destDir: File): Boolean {
               }
             }
           }
+          processed++
+          onProgress?.invoke(processed)
           entry = tar.nextEntry
         }
       }
