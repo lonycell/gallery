@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
+import com.google.ai.edge.gallery.customtasks.kakao.KakaoShareTools
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssistantPromptSource
 import com.google.ai.edge.gallery.data.Model
@@ -30,6 +31,7 @@ import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -123,11 +125,18 @@ class VoiceAssistantTask(
         }
       val hasTools = toolsPrompt.isNotEmpty()
       val hasSkills = skillsPrompt.isNotEmpty()
-      val functionCalling = hasTools || hasSkills
 
       val finalPrompt =
         buildString {
           if (basePrompt.isNotEmpty()) append(basePrompt)
+          // KakaoTalk send tool is always available (see customtasks/kakao). Tell the model how to
+          // use it, and to confirm with the user before sending (it's an irreversible action).
+          if (isNotEmpty()) append("\n\n")
+          append(
+            "사용자가 카카오톡(카톡) 메시지를 보내달라고 명확히 말하면 `sendKakaoMessage` 도구를 " +
+              "호출하세요. 보내기 전에 수신자와 메시지 내용을 사용자에게 요약해 확인받으세요. " +
+              "실제 전송은 카카오톡 화면에서 사용자가 수신자를 고르고 확정합니다."
+          )
           if (hasSkills) {
             if (isNotEmpty()) append("\n\n")
             append(
@@ -147,6 +156,14 @@ class VoiceAssistantTask(
       val instruction: Contents? =
         if (finalPrompt.isNotEmpty()) Contents.of(listOf(Content.Text(finalPrompt))) else null
 
+      // The KakaoTalk share tool is always offered; skills/MCP are added only when present. Function
+      // calling is therefore always enabled.
+      val toolSets = mutableListOf<ToolProvider>()
+      toolSets.add(tool(KakaoShareTools(context = context.applicationContext)))
+      if (hasTools || hasSkills) {
+        toolSets.add(tool(agentTools))
+      }
+
       LlmChatModelHelper.initialize(
         context = context,
         model = model,
@@ -155,8 +172,8 @@ class VoiceAssistantTask(
         supportAudio = false,
         onDone = onDone,
         systemInstruction = instruction,
-        tools = if (functionCalling) listOf(tool(agentTools)) else listOf(),
-        enableConversationConstrainedDecoding = functionCalling,
+        tools = toolSets,
+        enableConversationConstrainedDecoding = true,
       )
     }
   }

@@ -51,6 +51,12 @@
     <uses-feature android:name="android.hardware.camera.flash"
         android:required="false" />
 
+    <!-- Package visibility (Android 11+) so the Voice Assistant's KakaoTalk share tool can target
+         the KakaoTalk app via an explicit ACTION_SEND intent. See customtasks/kakao. -->
+    <queries>
+        <package android:name="com.kakao.talk" />
+    </queries>
+
     <application
         android:name="${applicationName}"
         android:allowBackup="true"
