@@ -30,6 +30,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.customtasks.speech.AudioPlayer
 import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralTts
+import com.google.ai.edge.gallery.customtasks.speech.KoreanTtsLoadResult
+import com.google.ai.edge.gallery.data.ModelDownloadStatus
+import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.TopicPrompt
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssistantPromptSource
 import com.google.ai.edge.gallery.data.Model
@@ -66,6 +69,35 @@ data class VoiceOption(
   val isNeural: Boolean = false,
 )
 
+/**
+ * The lifecycle of preparing the downloadable Korean neural voice, so the UI can show appropriate
+ * feedback (download progress, an unzip/initialize spinner, errors with recovery, etc).
+ */
+enum class NeuralVoiceStage {
+  /** Not downloaded yet and not currently being prepared. */
+  NOT_INSTALLED,
+  /** The model archive is downloading. */
+  DOWNLOADING,
+  /** The archive is downloaded; being unpacked (.tar.bz2) and the engine initialized. */
+  PREPARING,
+  /** Ready to speak. */
+  READY,
+  /** Something failed (download, unpack, or init). [NeuralVoiceState.error] has details. */
+  ERROR,
+}
+
+/** Detailed state of the Korean neural voice preparation pipeline. */
+data class NeuralVoiceState(
+  val stage: NeuralVoiceStage = NeuralVoiceStage.NOT_INSTALLED,
+  /** 0..100 while downloading, or -1 if unknown. */
+  val downloadPercent: Int = -1,
+  val downloadedBytes: Long = 0L,
+  val totalBytes: Long = 0L,
+  val bytesPerSecond: Long = 0L,
+  val remainingMs: Long = 0L,
+  val error: String = "",
+)
+
 /** UI state for the Voice Assistant screen. */
 data class VoiceAssistantUiState(
   val messages: List<ChatMessage> = listOf(),
@@ -81,6 +113,8 @@ data class VoiceAssistantUiState(
   val voices: List<VoiceOption> = listOf(),
   /** The currently selected voice id. */
   val selectedVoiceId: String = "",
+  /** State of the downloadable Korean neural voice (download → unpack/init → ready/error). */
+  val neuralVoice: NeuralVoiceState = NeuralVoiceState(),
 )
 
 @HiltViewModel
@@ -339,40 +373,119 @@ constructor(
   }
 
   private var pendingModel: Model? = null
-  private var neuralTtsRequested = false
 
   /** Lets the screen provide the currently selected (initialized) model. */
   fun setActiveModel(model: Model) {
     pendingModel = model
   }
 
+  private var koreanTtsModel: Model? = null
+  private var preparing = false
+
   /**
-   * Asks the assistant to use the downloadable Korean neural voice for speech output, if available.
+   * Feeds the latest download state of the Korean neural voice from the screen, and drives the
+   * preparation pipeline (download → unpack/init → ready) while exposing it via [uiState].
    *
-   * The screen passes the Korean TTS [Model] (looked up from the model manager). If its files have
-   * been downloaded, we load the sherpa-onnx engine and speak with it; otherwise we silently keep
-   * using the system TextToSpeech engine. Loading happens once.
+   * @param model the Korean TTS model (or null if it isn't registered).
+   * @param downloadStatus the model's current download status from the model manager (or null).
    */
-  fun enableNeuralTtsIfAvailable(koreanTtsModel: Model?) {
-    if (neuralTtsRequested || koreanTtsModel == null) {
+  fun onKoreanTtsStatus(model: Model?, downloadStatus: ModelDownloadStatus?) {
+    koreanTtsModel = model
+    if (model == null) {
+      updateNeuralStage(NeuralVoiceState(stage = NeuralVoiceStage.NOT_INSTALLED))
       return
     }
-    neuralTtsRequested = true
-    viewModelScope.launch {
-      val engine = withContext(Dispatchers.IO) { KoreanNeuralTts.tryLoad(context, koreanTtsModel) }
-      if (engine != null) {
-        neuralTts = engine
-        Log.d(TAG, "Korean neural TTS loaded; offering it as a voice option.")
-        // Make the neural voice the default and refresh the selectable list.
-        if (_uiState.value.selectedVoiceId.isEmpty() ||
-          _uiState.value.selectedVoiceId.startsWith("system:")) {
-          _uiState.update { it.copy(selectedVoiceId = neuralVoiceId) }
+    // Already loaded → nothing to do.
+    if (neuralTts != null) {
+      return
+    }
+
+    when (downloadStatus?.status) {
+      ModelDownloadStatusType.IN_PROGRESS,
+      ModelDownloadStatusType.PARTIALLY_DOWNLOADED,
+      ModelDownloadStatusType.UNZIPPING -> {
+        val total = downloadStatus.totalBytes
+        val received = downloadStatus.receivedBytes
+        val pct = if (total > 0L) (received * 100 / total).toInt() else -1
+        updateNeuralStage(
+          NeuralVoiceState(
+            stage = NeuralVoiceStage.DOWNLOADING,
+            downloadPercent = pct,
+            downloadedBytes = received,
+            totalBytes = total,
+            bytesPerSecond = downloadStatus.bytesPerSecond,
+            remainingMs = downloadStatus.remainingMs,
+          )
+        )
+      }
+      ModelDownloadStatusType.SUCCEEDED -> {
+        // Download done → unpack + initialize the engine (unless we're already on it).
+        prepareNeuralEngine(model)
+      }
+      ModelDownloadStatusType.FAILED -> {
+        updateNeuralStage(
+          NeuralVoiceState(
+            stage = NeuralVoiceStage.ERROR,
+            error = downloadStatus.errorMessage.ifEmpty { "다운로드에 실패했습니다." },
+          )
+        )
+      }
+      else -> {
+        // NOT_DOWNLOADED or unknown: only reset to NOT_INSTALLED if we're not mid-preparation.
+        if (!preparing && _uiState.value.neuralVoice.stage != NeuralVoiceStage.PREPARING) {
+          updateNeuralStage(NeuralVoiceState(stage = NeuralVoiceStage.NOT_INSTALLED))
         }
-        rebuildVoiceOptions()
-      } else {
-        Log.d(TAG, "Korean neural TTS not available; falling back to system TTS.")
       }
     }
+  }
+
+  /** Unpacks the downloaded archive and initializes the sherpa-onnx engine, updating UI stages. */
+  private fun prepareNeuralEngine(model: Model) {
+    if (preparing || neuralTts != null) {
+      return
+    }
+    preparing = true
+    updateNeuralStage(NeuralVoiceState(stage = NeuralVoiceStage.PREPARING))
+    viewModelScope.launch {
+      val result = withContext(Dispatchers.IO) { KoreanNeuralTts.load(context, model) }
+      when (result) {
+        is KoreanTtsLoadResult.Success -> {
+          neuralTts = result.tts
+          updateNeuralStage(NeuralVoiceState(stage = NeuralVoiceStage.READY))
+          if (
+            _uiState.value.selectedVoiceId.isEmpty() ||
+              _uiState.value.selectedVoiceId.startsWith("system:")
+          ) {
+            _uiState.update { it.copy(selectedVoiceId = neuralVoiceId) }
+          }
+          rebuildVoiceOptions()
+          Log.d(TAG, "Korean neural TTS ready.")
+        }
+        is KoreanTtsLoadResult.NotDownloaded -> {
+          updateNeuralStage(NeuralVoiceState(stage = NeuralVoiceStage.NOT_INSTALLED))
+        }
+        is KoreanTtsLoadResult.Failure -> {
+          updateNeuralStage(
+            NeuralVoiceState(stage = NeuralVoiceStage.ERROR, error = result.message)
+          )
+        }
+      }
+      preparing = false
+    }
+  }
+
+  /** Retries preparing the neural voice after a failure (re-extract; the archive is reused). */
+  fun retryNeuralPreparation() {
+    val model = koreanTtsModel ?: return
+    // Clear any partial extraction so we start clean, then re-run preparation.
+    viewModelScope.launch {
+      withContext(Dispatchers.IO) { KoreanNeuralTts.clearExtracted(context, model) }
+      prepareNeuralEngine(model)
+    }
+  }
+
+  private fun updateNeuralStage(state: NeuralVoiceState) {
+    _uiState.update { it.copy(neuralVoice = state) }
   }
 
   private fun submitUserInput(text: String, model: Model? = null) {

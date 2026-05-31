@@ -55,6 +55,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -77,8 +78,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
-import com.google.ai.edge.gallery.data.ModelDownloadStatus
-import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
@@ -98,18 +97,13 @@ fun VoiceAssistantScreen(
   LaunchedEffect(model.name) { viewModel.setActiveModel(model) }
 
   // The downloadable Korean neural voice (shared with the Text to Speech task) gives higher-quality,
-  // device-independent Korean speech than the system engine. Look it up and track its download
-  // status so we can both offer to download it and auto-enable it once it's ready.
+  // device-independent Korean speech than the system engine. Track its download status and feed it
+  // to the ViewModel, which drives the whole download → unpack/init → ready pipeline (incl. errors).
   val koreanTtsModel = remember { modelManagerViewModel.getModelByName(KOREAN_TTS_MODEL_NAME) }
-  val koreanTtsStatus =
-    koreanTtsModel?.let { modelManagerUiState.modelDownloadStatus[it.name] }
-  val koreanTtsDownloaded = koreanTtsStatus?.status == ModelDownloadStatusType.SUCCEEDED
+  val koreanTtsStatus = koreanTtsModel?.let { modelManagerUiState.modelDownloadStatus[it.name] }
 
-  // Enable the neural voice as soon as it is (or becomes) downloaded.
-  LaunchedEffect(koreanTtsDownloaded) {
-    if (koreanTtsDownloaded) {
-      viewModel.enableNeuralTtsIfAvailable(koreanTtsModel)
-    }
+  LaunchedEffect(koreanTtsModel, koreanTtsStatus?.status, koreanTtsStatus?.receivedBytes) {
+    viewModel.onKoreanTtsStatus(koreanTtsModel, koreanTtsStatus)
   }
 
   val micPermissionLauncher =
@@ -163,12 +157,13 @@ fun VoiceAssistantScreen(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
 
-      // Offer to download the high-quality Korean neural voice if it isn't installed yet.
-      if (koreanTtsModel != null && !koreanTtsDownloaded) {
+      // Korean neural voice status: download → unpack/init → ready, with progress and error recovery.
+      if (koreanTtsModel != null && uiState.neuralVoice.stage != NeuralVoiceStage.READY) {
         Spacer(modifier = Modifier.height(10.dp))
         KoreanVoiceBanner(
-          status = koreanTtsStatus,
+          state = uiState.neuralVoice,
           onDownload = { modelManagerViewModel.downloadModel(task = null, model = koreanTtsModel) },
+          onRetryPrepare = { viewModel.retryNeuralPreparation() },
         )
       }
 
@@ -389,66 +384,111 @@ private fun VoicePickerRow(
 }
 
 /**
- * A compact banner offering to download the high-quality Korean neural voice. Shows a progress
- * indicator while downloading and an error (with retry) if it failed.
+ * A banner that surfaces the full lifecycle of the high-quality Korean neural voice:
+ * download (with a real progress bar, speed and ETA), unpack/initialize (spinner), and errors with
+ * a recovery action. Hidden by the caller once the voice is READY.
  */
 @Composable
-private fun KoreanVoiceBanner(status: ModelDownloadStatus?, onDownload: () -> Unit) {
-  val inProgress =
-    status?.status == ModelDownloadStatusType.IN_PROGRESS ||
-      status?.status == ModelDownloadStatusType.PARTIALLY_DOWNLOADED ||
-      status?.status == ModelDownloadStatusType.UNZIPPING
-  val failed = status?.status == ModelDownloadStatusType.FAILED
-
+private fun KoreanVoiceBanner(
+  state: NeuralVoiceState,
+  onDownload: () -> Unit,
+  onRetryPrepare: () -> Unit,
+) {
   Surface(
     shape = RoundedCornerShape(14.dp),
     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
     modifier = Modifier.fillMaxWidth(),
   ) {
-    Row(
-      verticalAlignment = Alignment.CenterVertically,
-      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-    ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-          text = "고품질 한국어 음성",
-          style = MaterialTheme.typography.bodyMedium,
-          fontWeight = FontWeight.SemiBold,
-          color = MaterialTheme.colorScheme.onSurface,
+    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = Icons.Filled.AutoAwesome,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(18.dp),
         )
-        val subtitle =
-          when {
-            inProgress -> {
-              val total = status?.totalBytes ?: 0L
-              val received = status?.receivedBytes ?: 0L
-              if (total > 0L) {
-                val pct = (received * 100 / total).toInt()
-                "다운로드 중… $pct%"
-              } else {
-                "다운로드 중…"
-              }
-            }
-            failed -> "다운로드 실패. 다시 시도하세요."
-            else -> "더 자연스러운 음성으로 들으려면 받아보세요 (약 64MB)."
-          }
-        Text(
-          text = subtitle,
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "고품질 한국어 음성",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+          )
+          Text(
+            text = neuralVoiceSubtitle(state),
+            style = MaterialTheme.typography.bodySmall,
+            color =
+              if (state.stage == NeuralVoiceStage.ERROR) MaterialTheme.colorScheme.error
+              else MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        when (state.stage) {
+          NeuralVoiceStage.NOT_INSTALLED -> Button(onClick = onDownload) { Text("받기") }
+          NeuralVoiceStage.DOWNLOADING ->
+            CircularProgressIndicator(
+              modifier = Modifier.size(22.dp),
+              strokeWidth = 2.dp,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          NeuralVoiceStage.PREPARING ->
+            CircularProgressIndicator(
+              modifier = Modifier.size(22.dp),
+              strokeWidth = 2.dp,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          NeuralVoiceStage.ERROR -> Button(onClick = onRetryPrepare) { Text("재시도") }
+          NeuralVoiceStage.READY -> {}
+        }
       }
-      Spacer(modifier = Modifier.width(12.dp))
-      if (inProgress) {
-        CircularProgressIndicator(
-          modifier = Modifier.size(22.dp),
-          strokeWidth = 2.dp,
-          color = MaterialTheme.colorScheme.primary,
-        )
-      } else {
-        Button(onClick = onDownload) { Text(if (failed) "재시도" else "받기") }
+
+      // A determinate progress bar while downloading (falls back to indeterminate if size unknown).
+      if (state.stage == NeuralVoiceStage.DOWNLOADING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        if (state.downloadPercent in 0..100) {
+          LinearProgressIndicator(
+            progress = { state.downloadPercent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+      } else if (state.stage == NeuralVoiceStage.PREPARING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
       }
     }
   }
+}
+
+/** Builds the human-readable subtitle describing the current neural-voice stage. */
+private fun neuralVoiceSubtitle(state: NeuralVoiceState): String =
+  when (state.stage) {
+    NeuralVoiceStage.NOT_INSTALLED -> "더 자연스러운 음성으로 들으려면 받아보세요 (약 64MB)."
+    NeuralVoiceStage.DOWNLOADING -> {
+      val pct = if (state.downloadPercent in 0..100) "${state.downloadPercent}%" else ""
+      val speed = if (state.bytesPerSecond > 0) " · ${formatSpeed(state.bytesPerSecond)}" else ""
+      val eta = if (state.remainingMs > 0) " · ${formatEta(state.remainingMs)} 남음" else ""
+      "다운로드 중 $pct$speed$eta".trim()
+    }
+    NeuralVoiceStage.PREPARING -> "음성 데이터 준비 중… (압축 해제 및 초기화)"
+    NeuralVoiceStage.ERROR -> state.error.ifEmpty { "오류가 발생했습니다." }
+    NeuralVoiceStage.READY -> "사용 준비 완료"
+  }
+
+private fun formatSpeed(bytesPerSecond: Long): String {
+  val mb = bytesPerSecond / 1_000_000.0
+  if (mb >= 1.0) return String.format("%.1f MB/s", mb)
+  val kb = bytesPerSecond / 1_000.0
+  return String.format("%.0f KB/s", kb)
+}
+
+private fun formatEta(remainingMs: Long): String {
+  val totalSec = (remainingMs / 1000).toInt()
+  val min = totalSec / 60
+  val sec = totalSec % 60
+  return if (min > 0) "${min}분 ${sec}초" else "${sec}초"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
