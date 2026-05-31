@@ -29,8 +29,11 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.common.AgentAction
+import com.google.ai.edge.gallery.common.AskInfoAgentAction
 import com.google.ai.edge.gallery.common.AskMcpToolCallPermissionAction
+import com.google.ai.edge.gallery.common.CallJsAgentAction
 import com.google.ai.edge.gallery.common.PermissionResult
+import com.google.ai.edge.gallery.common.RequestPermissionAgentAction
 import com.google.ai.edge.gallery.common.SkillProgressAgentAction
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.speech.AudioPlayer
@@ -150,7 +153,9 @@ data class VoiceAssistantUiState(
   val neuralStt: NeuralSttState = NeuralSttState(),
   /** Number of connected/enabled MCP tools currently available to the assistant. */
   val mcpToolCount: Int = 0,
-  /** A short status line shown while the assistant is invoking a tool (empty when idle). */
+  /** Number of selected skills currently available to the assistant. */
+  val skillCount: Int = 0,
+  /** A short status line shown while the assistant is invoking a tool/skill (empty when idle). */
   val toolActivity: String = "",
 )
 
@@ -730,8 +735,19 @@ constructor(
           it.copy(toolActivity = if (action.inProgress) action.label else "")
         }
       }
+      // The following actions need a UI surface the voice flow doesn't provide (web view, free-text
+      // input, runtime Android permission). Their `runMcpTool`/skill callers await a result, so we
+      // MUST complete the deferred immediately to avoid hanging the inference; we resolve them as
+      // "unsupported"/denied so the model can move on and tell the user.
+      is CallJsAgentAction -> {
+        action.result.complete(
+          "{\"error\":\"JS skills are not supported in the Voice Assistant\",\"status\":\"failed\"}"
+        )
+      }
+      is AskInfoAgentAction -> action.result.complete("")
+      is RequestPermissionAgentAction -> action.result.complete(false)
       else -> {
-        // Other actions (JS skills, intents, ask-info) aren't used by the voice flow.
+        // Nothing else is emitted by the tools we expose.
       }
     }
   }
@@ -747,6 +763,13 @@ constructor(
   fun setMcpToolCount(count: Int) {
     if (count != _uiState.value.mcpToolCount) {
       _uiState.update { it.copy(mcpToolCount = count) }
+    }
+  }
+
+  /** Updates the count of selected skills (drives the "skills available" UI). */
+  fun setSkillCount(count: Int) {
+    if (count != _uiState.value.skillCount) {
+      _uiState.update { it.copy(skillCount = count) }
     }
   }
 

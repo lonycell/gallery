@@ -60,6 +60,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -85,6 +86,7 @@ import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
 import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDialog
+import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.NEURAL_STT_MODEL_NAME
@@ -121,6 +123,11 @@ fun VoiceAssistantScreen(
       .filter { it.mcpServer.enabled }
       .sumOf { server -> server.mcpServer.toolsList.count { it.enabled } }
   LaunchedEffect(mcpToolCount) { viewModel.setMcpToolCount(mcpToolCount) }
+
+  // Track how many skills are selected (skills + MCP tools both enable function calling).
+  val skillUiState by skillManagerViewModel.uiState.collectAsState()
+  val skillCount = skillUiState.skills.count { it.skill.selected }
+  LaunchedEffect(skillCount) { viewModel.setSkillCount(skillCount) }
 
   // Pending MCP tool-call permission dialog.
   val mcpPermission by viewModel.mcpPermissionRequest.collectAsState()
@@ -177,17 +184,19 @@ fun VoiceAssistantScreen(
     }
 
   var showMcpSheet by remember { mutableStateOf(false) }
+  var showSkillSheet by remember { mutableStateOf(false) }
 
-  // When the set of connected MCP tools *changes* (not on first composition), reinitialize the
-  // selected model so the system prompt + function-calling tools reflect the current tools.
-  var lastToolCount by remember { mutableStateOf(mcpToolCount) }
-  LaunchedEffect(mcpToolCount, model.name) {
+  // When the set of selected skills / connected MCP tools *changes* (not on first composition),
+  // reinitialize the selected model so the system prompt + function-calling tools reflect them.
+  var lastCapabilityKey by remember { mutableStateOf(mcpToolCount to skillCount) }
+  LaunchedEffect(mcpToolCount, skillCount, model.name) {
+    val key = mcpToolCount to skillCount
     if (
-      mcpToolCount != lastToolCount &&
+      key != lastCapabilityKey &&
         model.name.isNotEmpty() &&
         modelManagerUiState.isModelInitialized(model)
     ) {
-      lastToolCount = mcpToolCount
+      lastCapabilityKey = key
       modelManagerViewModel.initializeModel(
         context = context,
         task = task,
@@ -195,7 +204,7 @@ fun VoiceAssistantScreen(
         force = true,
       )
     } else {
-      lastToolCount = mcpToolCount
+      lastCapabilityKey = key
     }
   }
 
@@ -203,6 +212,14 @@ fun VoiceAssistantScreen(
     McpManagerBottomSheet(
       mcpManagerViewModel = mcpManagerViewModel,
       onDismiss = { showMcpSheet = false },
+    )
+  }
+
+  if (showSkillSheet) {
+    SkillManagerBottomSheet(
+      agentTools = agentTools,
+      skillManagerViewModel = skillManagerViewModel,
+      onDismiss = { showSkillSheet = false },
     )
   }
 
@@ -298,13 +315,15 @@ fun VoiceAssistantScreen(
         )
       }
 
-      // Tools / MCP: show how many tools are connected and let the user manage connections. When
-      // tools are available, reinitialize the model so function calling is enabled.
+      // Skills / Tools / MCP: show how many skills + tools are available and let the user manage
+      // them. Changing them reinitializes the model so function calling reflects the new capabilities.
       Spacer(modifier = Modifier.height(8.dp))
       ToolsBanner(
         toolCount = uiState.mcpToolCount,
+        skillCount = uiState.skillCount,
         toolActivity = uiState.toolActivity,
-        onManage = { showMcpSheet = true },
+        onManageTools = { showMcpSheet = true },
+        onManageSkills = { showSkillSheet = true },
       )
 
       Spacer(modifier = Modifier.height(8.dp))
@@ -624,14 +643,20 @@ private fun neuralSttSubtitle(state: NeuralSttState): String =
   }
 
 /**
- * Banner advertising tool/MCP availability. When no tools are connected it invites the user to
- * connect MCP servers; when tools are available it shows the count and any in-progress tool call.
+ * Banner advertising skill + tool/MCP availability. Shows how many skills and MCP tools are
+ * available (or invites the user to add them), reflects any in-progress tool/skill call, and offers
+ * two manage actions (skills, MCP).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ToolsBanner(toolCount: Int, toolActivity: String, onManage: () -> Unit) {
+private fun ToolsBanner(
+  toolCount: Int,
+  skillCount: Int,
+  toolActivity: String,
+  onManageTools: () -> Unit,
+  onManageSkills: () -> Unit,
+) {
   Surface(
-    onClick = onManage,
     shape = RoundedCornerShape(14.dp),
     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
     modifier = Modifier.fillMaxWidth(),
@@ -649,7 +674,7 @@ private fun ToolsBanner(toolCount: Int, toolActivity: String, onManage: () -> Un
       Spacer(modifier = Modifier.width(8.dp))
       Column(modifier = Modifier.weight(1f)) {
         Text(
-          text = "도구 · MCP",
+          text = "스킬 · 도구",
           style = MaterialTheme.typography.bodyMedium,
           fontWeight = FontWeight.SemiBold,
           color = MaterialTheme.colorScheme.onSurface,
@@ -657,8 +682,8 @@ private fun ToolsBanner(toolCount: Int, toolActivity: String, onManage: () -> Un
         val subtitle =
           when {
             toolActivity.isNotEmpty() -> toolActivity
-            toolCount > 0 -> "사용 가능한 도구 $toolCount개 · 탭하여 관리"
-            else -> "도구가 필요하면 MCP 서버를 연결하세요"
+            skillCount > 0 || toolCount > 0 -> "스킬 ${skillCount}개 · 도구 ${toolCount}개 사용 가능"
+            else -> "스킬을 켜거나 MCP 서버를 연결해 기능을 추가하세요"
           }
         Text(
           text = subtitle,
@@ -666,7 +691,7 @@ private fun ToolsBanner(toolCount: Int, toolActivity: String, onManage: () -> Un
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
-      Spacer(modifier = Modifier.width(12.dp))
+      Spacer(modifier = Modifier.width(8.dp))
       if (toolActivity.isNotEmpty()) {
         CircularProgressIndicator(
           modifier = Modifier.size(20.dp),
@@ -674,11 +699,8 @@ private fun ToolsBanner(toolCount: Int, toolActivity: String, onManage: () -> Un
           color = MaterialTheme.colorScheme.primary,
         )
       } else {
-        Text(
-          text = if (toolCount > 0) "관리" else "연결",
-          style = MaterialTheme.typography.labelLarge,
-          color = MaterialTheme.colorScheme.primary,
-        )
+        TextButton(onClick = onManageSkills) { Text("스킬") }
+        TextButton(onClick = onManageTools) { Text("MCP") }
       }
     }
   }
