@@ -24,11 +24,8 @@ import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssistantPromptSource
-import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
-import com.google.ai.edge.gallery.data.createLlmChatConfigs
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -36,21 +33,24 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-// The Voice Assistant runs on a small, general-purpose on-device LLM. We reuse the same model that
-// ships in the app's allowlist ("Gemma3-1B-IT") so it downloads and initializes through the exact
-// same LiteRT-LM path as the built-in chat tasks.
-private const val VA_MODEL_NAME = "Gemma3-1B-IT"
-private const val VA_MODEL_ID = "litert-community/Gemma3-1B-IT"
-private const val VA_MODEL_FILE = "gemma3-1b-it-int4.litertlm"
-private const val VA_MODEL_COMMIT = "42d538a932e8d5b12e6b3b455f5572560bd60b2c"
-private const val VA_MODEL_SIZE_BYTES = 584417280L
+/**
+ * The task id of the Voice Assistant. Exposed so the model manager can share the same downloadable
+ * LLMs (the ones offered for chat) with this task.
+ */
+const val VOICE_ASSISTANT_TASK_ID = "speech_voice_assistant"
 
 /**
  * A custom task that hosts a futuristic, hands-free Voice Assistant.
  *
- * The user speaks (Android [android.speech.SpeechRecognizer]), the on-device LLM replies through
- * [LlmChatModelHelper], the reply is shown on screen as it streams in, and it is simultaneously
- * read aloud (Android [android.speech.tts.TextToSpeech]).
+ * The user speaks (Android [android.speech.SpeechRecognizer] or the optional neural recognizer),
+ * the on-device LLM replies through [LlmChatModelHelper], the reply is shown on screen as it streams
+ * in, and it is simultaneously read aloud (Android [android.speech.tts.TextToSpeech] or the optional
+ * neural voice).
+ *
+ * The Voice Assistant does not ship its own model. Instead, it shares the same downloadable chat
+ * LLMs from the app's allowlist (Gemma 3, Gemma 4, Qwen, …): the model manager adds every LLM that
+ * is offered for `llm_chat` to this task too, so users can download and switch between them with the
+ * standard model selector. See `ModelManagerViewModel.loadModelAllowlist`.
  *
  * An optional entry topic/problem (see [VoiceAssistantEntryParams]) selects an appropriate system
  * prompt from the [VoiceAssistantPromptSource]; with no topic, a general assistant prompt is used.
@@ -62,7 +62,7 @@ class VoiceAssistantTask(
 
   override val task: Task =
     Task(
-      id = "speech_voice_assistant",
+      id = VOICE_ASSISTANT_TASK_ID,
       label = "음성 어시스턴트",
       category = SpeechCategory,
       icon = Icons.Outlined.GraphicEq,
@@ -75,7 +75,8 @@ class VoiceAssistantTask(
       sourceCodeUrl =
         "https://github.com/google-ai-edge/gallery/blob/main/Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/voiceassistant",
       newFeature = true,
-      models = mutableListOf(buildVoiceAssistantModel()),
+      // Populated by the model manager with the same LLMs offered for chat.
+      models = mutableListOf(),
     )
 
   override fun initializeModelFn(
@@ -127,39 +128,4 @@ class VoiceAssistantTask(
       modelManagerViewModel = customTaskData.modelManagerViewModel,
     )
   }
-}
-
-/**
- * Builds the [Model] for the Voice Assistant, mirroring how the app constructs LLM models from the
- * allowlist (HuggingFace resolve URL, LiteRT-LM runtime, standard LLM chat configs).
- */
-private fun buildVoiceAssistantModel(): Model {
-  val configs =
-    createLlmChatConfigs(
-      defaultMaxToken = 1024,
-      defaultTopK = 64,
-      defaultTopP = 0.95f,
-      defaultTemperature = 1.0f,
-      accelerators = listOf(Accelerator.GPU, Accelerator.CPU),
-    )
-  return Model(
-    name = VA_MODEL_NAME,
-    version = VA_MODEL_COMMIT,
-    info =
-      "A 4-bit quantized variant of google/Gemma-3-1B-IT running on-device via LiteRT-LM. Used " +
-        "here to power the Voice Assistant.",
-    url =
-      "https://huggingface.co/$VA_MODEL_ID/resolve/$VA_MODEL_COMMIT/$VA_MODEL_FILE?download=true",
-    sizeInBytes = VA_MODEL_SIZE_BYTES,
-    downloadFileName = VA_MODEL_FILE,
-    learnMoreUrl = "https://huggingface.co/$VA_MODEL_ID",
-    minDeviceMemoryInGb = 6,
-    configs = configs,
-    showBenchmarkButton = false,
-    showRunAgainButton = false,
-    isLlm = true,
-    llmMaxToken = 1024,
-    accelerators = listOf(Accelerator.GPU, Accelerator.CPU),
-    runtimeType = RuntimeType.LITERT_LM,
-  )
 }

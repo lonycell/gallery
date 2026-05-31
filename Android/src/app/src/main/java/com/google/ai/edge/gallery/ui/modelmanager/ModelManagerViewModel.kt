@@ -30,6 +30,7 @@ import com.google.ai.edge.gallery.common.SystemPromptHelper
 import com.google.ai.edge.gallery.common.getJsonResponse
 import com.google.ai.edge.gallery.common.isAICoreSupported
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
+import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
 import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Category
@@ -990,6 +991,14 @@ constructor(
               val newConfigs = model.configs.toMutableList()
               newConfigs.add(RESET_CONVERSATION_TURN_COUNT_CONFIG)
               model.configs = newConfigs
+            }
+
+            // The Voice Assistant ships no model of its own; it reuses the same chat LLMs so users
+            // can download and switch between them (Gemma 3, Gemma 4, Qwen, …) like in chat.
+            if (taskType == BuiltInTaskId.LLM_CHAT) {
+              curTasks
+                .find { it.id == VOICE_ASSISTANT_TASK_ID }
+                ?.let { vaTask -> if (!vaTask.models.contains(model)) vaTask.models.add(model) }
             }
           }
         }
