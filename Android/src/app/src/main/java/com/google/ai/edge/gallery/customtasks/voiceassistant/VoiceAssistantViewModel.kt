@@ -58,7 +58,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -67,6 +70,13 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "AGVoiceAssistant"
 private const val ASSISTANT_UTTERANCE_ID = "va_assistant_utterance"
+
+// Characters that end a sentence (Korean + Latin + CJK), used by streaming TTS to decide when a
+// chunk of the reply is complete enough to start speaking. Newlines also flush.
+private val SENTENCE_TERMINATORS = charArrayOf('.', '!', '?', '…', '。', '！', '？', '\n')
+// If a run of text has no terminator for this many characters, flush it anyway so streaming speech
+// doesn't stall on a long terminator-less passage.
+private const val STREAMING_SOFT_FLUSH_CHARS = 60
 
 /** A single message in the voice conversation. */
 data class ChatMessage(val role: Role, val text: String, val isStreaming: Boolean = false) {
@@ -129,6 +139,14 @@ enum class SttEngine {
   WHISPER,
 }
 
+/** When the assistant's spoken reply is produced relative to the LLM's text generation. */
+enum class TtsSpeakMode {
+  /** Speak only after the full reply has been generated (default; most natural prosody). */
+  AFTER_COMPLETE,
+  /** Speak sentence-by-sentence as the reply streams in, for much lower time-to-first-audio. */
+  STREAMING,
+}
+
 /** Detailed state of the downloadable neural speech recognizer (mirrors [NeuralVoiceState]). */
 data class NeuralSttState(
   val stage: NeuralVoiceStage = NeuralVoiceStage.NOT_INSTALLED,
@@ -153,6 +171,8 @@ data class VoiceAssistantUiState(
   val voices: List<VoiceOption> = listOf(),
   /** The currently selected voice id. */
   val selectedVoiceId: String = "",
+  /** Whether the reply is spoken after completion (default) or streamed sentence-by-sentence. */
+  val speakMode: TtsSpeakMode = TtsSpeakMode.AFTER_COMPLETE,
   /** State of the downloadable Korean neural voice (KSS) (download → unpack/init → ready/error). */
   val neuralVoice: NeuralVoiceState = NeuralVoiceState(),
   /** State of the downloadable MeloTTS Korean voice (same pipeline as [neuralVoice]). */
@@ -205,6 +225,20 @@ constructor(
   private var neuralTts: OfflineTts? = null
   private var meloTts: OfflineTts? = null
   private val audioPlayer = AudioPlayer()
+
+  // --- Streaming TTS (sentence-by-sentence) state ---
+  // A single consumer coroutine drains [speakChannel], speaking each completed sentence to the end
+  // before starting the next. [spokenChars] tracks how much of the streaming reply has already been
+  // turned into sentences. [streamingTurnActive] tells the system-TTS progress listener to leave
+  // [isSpeaking] alone while the consumer owns it. Pending system-TTS utterances are awaited via
+  // [utteranceCompletions] so the consumer stays in lock-step with playback.
+  private var speakChannel: Channel<String>? = null
+  private var speakConsumerJob: Job? = null
+  private var spokenChars = 0
+  private var utteranceSeq = 0
+  @Volatile private var streamingTurnActive = false
+  private val utteranceCompletions =
+    java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<Unit>>()
 
   // Optional on-device neural speech recognizer. A single recognizer is kept in memory at a time
   // (SenseVoice OR Whisper, whichever the user selected) to bound memory use; it is loaded lazily on
@@ -264,16 +298,27 @@ constructor(
             engine.setOnUtteranceProgressListener(
               object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
-                  _uiState.update { it.copy(isSpeaking = true) }
+                  // During a streaming turn the consumer coroutine owns isSpeaking (it stays true
+                  // across the whole reply); leave it alone here to avoid per-sentence flicker.
+                  if (!streamingTurnActive) {
+                    _uiState.update { it.copy(isSpeaking = true) }
+                  }
                 }
 
                 override fun onDone(utteranceId: String?) {
-                  _uiState.update { it.copy(isSpeaking = false) }
+                  // Unblock the streaming consumer waiting on this utterance, if any.
+                  utteranceId?.let { utteranceCompletions.remove(it)?.complete(Unit) }
+                  if (!streamingTurnActive) {
+                    _uiState.update { it.copy(isSpeaking = false) }
+                  }
                 }
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                  _uiState.update { it.copy(isSpeaking = false) }
+                  utteranceId?.let { utteranceCompletions.remove(it)?.complete(Unit) }
+                  if (!streamingTurnActive) {
+                    _uiState.update { it.copy(isSpeaking = false) }
+                  }
                 }
               }
             )
@@ -368,6 +413,15 @@ constructor(
       systemVoicesById[id]?.let { tts?.voice = it }
     }
     _uiState.update { it.copy(selectedVoiceId = id) }
+  }
+
+  /** Switches between speaking after the full reply (default) and streaming sentence-by-sentence. */
+  fun setSpeakMode(mode: TtsSpeakMode) {
+    if (mode == _uiState.value.speakMode) {
+      return
+    }
+    stopSpeaking()
+    _uiState.update { it.copy(speakMode = mode) }
   }
 
   // region Speech recognition (STT)
@@ -1013,6 +1067,12 @@ constructor(
 
   private fun runLlm(model: Model, input: String) {
     val builder = StringBuilder()
+    // In STREAMING mode we speak each finished sentence as it arrives; in AFTER_COMPLETE we speak
+    // the whole reply once generation finishes (the original behavior).
+    val streamingSpeech = _uiState.value.speakMode == TtsSpeakMode.STREAMING
+    if (streamingSpeech) {
+      beginStreamingSpeech()
+    }
     try {
       model.runtimeHelper.runInference(
         model = model,
@@ -1021,11 +1081,16 @@ constructor(
           if (!partialResult.startsWith("<ctrl")) {
             builder.append(partialResult)
             updateStreamingAssistant(builder.toString(), streaming = !done)
+            if (streamingSpeech) {
+              enqueueReadySentences(builder.toString())
+            }
           }
           if (done) {
             val full = builder.toString().trim()
             _uiState.update { it.copy(isThinking = false) }
-            if (full.isNotEmpty()) {
+            if (streamingSpeech) {
+              finishStreamingSpeech(builder.toString())
+            } else if (full.isNotEmpty()) {
               speak(full)
             }
           }
@@ -1033,6 +1098,9 @@ constructor(
         cleanUpListener = {},
         onError = { message ->
           Log.e(TAG, "Inference error: $message")
+          if (streamingSpeech) {
+            cancelStreamingSpeech()
+          }
           _uiState.update {
             it.copy(isThinking = false, error = message.ifEmpty { "문제가 발생했습니다." })
           }
@@ -1042,6 +1110,9 @@ constructor(
       )
     } catch (e: Exception) {
       Log.e(TAG, "Failed to run inference", e)
+      if (streamingSpeech) {
+        cancelStreamingSpeech()
+      }
       _uiState.update { it.copy(isThinking = false, error = e.message ?: "추론에 실패했습니다.") }
       updateStreamingAssistant(builder.toString(), streaming = false)
     }
@@ -1092,7 +1163,137 @@ constructor(
     }
   }
 
+  // --- Streaming TTS: speak each finished sentence as the reply is generated ---
+
+  /** Starts a fresh streaming-speech turn: clears prior speech and launches the sentence consumer. */
+  private fun beginStreamingSpeech() {
+    cancelStreamingSpeech()
+    spokenChars = 0
+    streamingTurnActive = true
+    val channel = Channel<String>(Channel.UNLIMITED)
+    speakChannel = channel
+    speakConsumerJob =
+      viewModelScope.launch {
+        try {
+          var first = true
+          // Receives sentences until the channel is closed (turn finished) or cancelled (barge-in).
+          for (segment in channel) {
+            if (first) {
+              _uiState.update { it.copy(isSpeaking = true) }
+            }
+            speakSegmentToCompletion(segment, flush = first)
+            first = false
+          }
+        } catch (e: Throwable) {
+          if (e !is kotlinx.coroutines.CancellationException) {
+            Log.w(TAG, "Streaming speech consumer failed", e)
+          }
+        } finally {
+          streamingTurnActive = false
+          _uiState.update { it.copy(isSpeaking = false) }
+        }
+      }
+  }
+
+  /** Extracts any newly-completed sentences from [full] and queues them for speech. */
+  private fun enqueueReadySentences(full: String) {
+    val channel = speakChannel ?: return
+    for (segment in extractReadySegments(full)) {
+      channel.trySend(segment)
+    }
+  }
+
+  /** Queues the trailing (unspoken) text and signals end-of-turn so the consumer can finish. */
+  private fun finishStreamingSpeech(full: String) {
+    val channel = speakChannel ?: return
+    val tail = full.substring(spokenChars.coerceIn(0, full.length)).trim()
+    if (tail.isNotEmpty()) {
+      channel.trySend(tail)
+    }
+    spokenChars = full.length
+    // Closing lets the consumer drain remaining sentences, then flip isSpeaking off in its finally.
+    channel.close()
+  }
+
+  /** Cancels any in-flight streaming speech (barge-in / new turn) and releases its resources. */
+  private fun cancelStreamingSpeech() {
+    speakChannel?.close()
+    speakChannel = null
+    speakConsumerJob?.cancel()
+    speakConsumerJob = null
+    utteranceCompletions.values.forEach { it.complete(Unit) }
+    utteranceCompletions.clear()
+    streamingTurnActive = false
+  }
+
+  /**
+   * Returns the run of [full] that has become "ready to speak" since the last call — everything up
+   * to and including the last sentence terminator — advancing [spokenChars] past it. Terminators are
+   * kept (they shape TTS prosody). A trailing partial sentence is left for later, unless the pending
+   * text has grown past [STREAMING_SOFT_FLUSH_CHARS] (then it's flushed at the last word boundary).
+   */
+  private fun extractReadySegments(full: String): List<String> {
+    if (spokenChars >= full.length) {
+      return emptyList()
+    }
+    val pending = full.substring(spokenChars)
+    var cut = pending.lastIndexOfAny(SENTENCE_TERMINATORS)
+    if (cut < 0 && pending.length >= STREAMING_SOFT_FLUSH_CHARS) {
+      // No sentence end yet, but it's getting long — flush up to the last word boundary.
+      cut = pending.lastIndexOf(' ')
+    }
+    if (cut < 0) {
+      return emptyList()
+    }
+    spokenChars += cut + 1
+    val ready = pending.substring(0, cut + 1).trim()
+    return if (ready.isEmpty()) emptyList() else listOf(ready)
+  }
+
+  /** Speaks one [text] segment and suspends until it has finished playing. */
+  private suspend fun speakSegmentToCompletion(text: String, flush: Boolean) {
+    val selectedId = _uiState.value.selectedVoiceId
+    val melo = meloTts
+    val kss = neuralTts
+    val engine =
+      when {
+        melo != null && selectedId == meloVoiceId -> melo
+        kss != null && (selectedId == neuralVoiceId || selectedId.isEmpty()) -> kss
+        else -> null
+      }
+    if (engine != null) {
+      try {
+        val audio =
+          withContext(Dispatchers.Default) { engine.generate(text = text, sid = 0, speed = 1.0f) }
+        audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+      } catch (e: Throwable) {
+        if (e !is kotlinx.coroutines.CancellationException) {
+          Log.w(TAG, "Streaming neural synthesis failed", e)
+        } else {
+          throw e
+        }
+      }
+    } else {
+      val system = tts ?: return
+      val id = "$ASSISTANT_UTTERANCE_ID-${utteranceSeq++}"
+      val done = CompletableDeferred<Unit>()
+      utteranceCompletions[id] = done
+      system.speak(
+        text,
+        if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+        null,
+        id,
+      )
+      try {
+        done.await()
+      } finally {
+        utteranceCompletions.remove(id)
+      }
+    }
+  }
+
   fun stopSpeaking() {
+    cancelStreamingSpeech()
     try {
       tts?.stop()
     } catch (e: Exception) {

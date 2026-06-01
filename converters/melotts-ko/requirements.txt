@@ -1,0 +1,19 @@
+# Conversion dependencies, pinned to the versions the official sherpa-onnx
+# melo-tts run.sh uses. CPU-only torch is enough (no GPU needed).
+#
+# MeloTTS itself is installed separately from source (it pulls transformers,
+# jamo, num2words, unidic, etc. via its own setup) — see the Dockerfile / convert
+# scripts. The Korean frontend additionally needs g2pkk + python-mecab-ko.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.1
+torchaudio==2.3.1
+numpy<2
+soundfile
+onnx==1.15.0
+# onnxruntime is used only for verification (show-info / test synthesis), not for
+# the export itself. 1.16.3 (the version in sherpa-onnx's run.sh) ships a .so that
+# requires an executable stack, which modern container kernels reject
+# ("cannot enable executable stack"). 1.18.1 fixed that packaging.
+onnxruntime==1.18.1
+g2pkk
+python-mecab-ko

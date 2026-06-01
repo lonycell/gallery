@@ -333,6 +333,15 @@ fun VoiceAssistantScreen(
         )
       }
 
+      // Speak-mode picker: speak after the full reply (default) vs. stream sentence-by-sentence.
+      if (uiState.ttsReady) {
+        Spacer(modifier = Modifier.height(8.dp))
+        SpeakModePickerRow(
+          selected = uiState.speakMode,
+          onSelect = { viewModel.setSpeakMode(it) },
+        )
+      }
+
       // STT engine picker — shown once at least one neural recognizer is available. Lists the
       // system engine plus whichever neural recognizers have been downloaded.
       val senseVoiceReady = uiState.neuralStt.stage == NeuralVoiceStage.READY
@@ -571,6 +580,32 @@ private fun VoicePickerRow(
           Text(text = voice.label, style = MaterialTheme.typography.labelLarge, color = content)
         }
       }
+    }
+  }
+}
+
+/**
+ * A chip row for choosing when the assistant speaks: after the full reply (default) or streamed
+ * sentence-by-sentence as it is generated (lower latency to first audio).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeakModePickerRow(selected: TtsSpeakMode, onSelect: (TtsSpeakMode) -> Unit) {
+  Row(
+    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = "발화:",
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    SttEngineChip("전체 발화", selected == TtsSpeakMode.AFTER_COMPLETE) {
+      onSelect(TtsSpeakMode.AFTER_COMPLETE)
+    }
+    SttEngineChip("실시간 발화", selected == TtsSpeakMode.STREAMING) {
+      onSelect(TtsSpeakMode.STREAMING)
     }
   }
 }

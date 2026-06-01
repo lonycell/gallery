@@ -1,0 +1,11 @@
+# Conversion build artifacts — never commit the (large) generated model files.
+out/
+.venv/
+MeloTTS/
+*.onnx
+*.wav
+*.tar.bz2
+tokens.txt
+lexicon.txt
+CONSTANTS.txt
+__pycache__/

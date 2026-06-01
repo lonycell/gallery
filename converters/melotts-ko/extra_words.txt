@@ -1,0 +1,44 @@
+# Optional curated Korean words for the lexicon (one per line; '#' = comment).
+#
+# WHY: every Hangul syllable is added automatically, so any text is *pronounceable*
+# by per-syllable fallback. But running the g2p on a whole word captures in-context
+# sound changes (연음, 경음화, ㅎ 탈락 ...) that isolated syllables miss, so listing
+# words here makes them sound more natural. Add the words your app says most.
+#
+# This seed covers common assistant phrases and loanwords; extend freely.
+안녕하세요
+반갑습니다
+감사합니다
+괜찮아요
+알겠습니다
+죄송합니다
+잠시만요
+도와줄게요
+무엇을
+어떻게
+어디에
+언제
+검색할게요
+날씨
+오늘
+내일
+지금
+시간
+약속
+일정
+메시지
+카카오톡
+보낼까요
+전화
+음악
+노래
+사진
+지도
+길찾기
+뉴스
+주식
+환율
+번역
+계산
+알람
+타이머

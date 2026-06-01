@@ -25,6 +25,10 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.util.Log
 import com.google.ai.edge.gallery.data.CategoryInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 private const val TAG = "AGSpeechAudio"
 
@@ -102,6 +106,76 @@ class AudioPlayer {
           }
         }
         .also { it.start() }
+  }
+
+  /**
+   * Plays [samples] and suspends until playback finishes (or the calling coroutine is cancelled).
+   *
+   * Unlike [play] (fire-and-forget), this is meant for **sequential streaming playback**: a caller
+   * can `playToCompletion(sentence1); playToCompletion(sentence2); …` and each clip plays fully
+   * before the next begins. Cancelling the coroutine (e.g. on barge-in) stops playback promptly.
+   */
+  suspend fun playToCompletion(samples: FloatArray, sampleRate: Int) {
+    stop()
+    if (samples.isEmpty()) {
+      return
+    }
+    withContext(Dispatchers.IO) {
+      val minBufferSize =
+        AudioTrack.getMinBufferSize(
+          sampleRate,
+          AudioFormat.CHANNEL_OUT_MONO,
+          AudioFormat.ENCODING_PCM_FLOAT,
+        )
+      val bufferSize = if (minBufferSize > 0) minBufferSize else sampleRate * 4
+      val t =
+        AudioTrack(
+          AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build(),
+          AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+            .setSampleRate(sampleRate)
+            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+            .build(),
+          bufferSize,
+          AudioTrack.MODE_STREAM,
+          AudioManager.AUDIO_SESSION_ID_GENERATE,
+        )
+      track = t
+      try {
+        t.play()
+        var offset = 0
+        while (offset < samples.size && isActive) {
+          val written =
+            t.write(samples, offset, samples.size - offset, AudioTrack.WRITE_BLOCKING)
+          if (written <= 0) {
+            break
+          }
+          offset += written
+        }
+        // The last write returns once the data is buffered; wait until the playback head has
+        // actually reached the end so the clip isn't cut off before the next one starts.
+        while (isActive && t.playbackHeadPosition < samples.size) {
+          delay(20)
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Sequential audio playback interrupted", e)
+      } finally {
+        try {
+          t.pause()
+          t.flush()
+          t.stop()
+        } catch (e: Exception) {
+          Log.w(TAG, "Failed to stop AudioTrack", e)
+        }
+        t.release()
+        if (track === t) {
+          track = null
+        }
+      }
+    }
   }
 
   fun stop() {

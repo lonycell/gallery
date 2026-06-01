@@ -86,19 +86,16 @@ private const val VITS_KSS_KO_DIR = "vits-mimic3-ko_KO-kss_low"
 private const val VITS_KSS_KO_ONNX = "ko_KO-kss_low.onnx"
 
 // MeloTTS Korean voice. MeloTTS (by MyShell.ai) gives very natural Korean speech; in sherpa-onnx it
-// runs as a VITS model (model.onnx + tokens.txt + lexicon.txt + dict/), shipped as one .tar.bz2.
+// runs as a VITS model (model.onnx + tokens.txt + lexicon.txt), shipped as one .tar.bz2.
 //
-// TODO(melo-ko): There is no official sherpa-onnx MeloTTS *Korean* release yet — only the
-// PyTorch model at https://huggingface.co/myshell-ai/MeloTTS-Korean (MIT) and the official
-// sherpa-onnx conversion `vits-melo-tts-zh_en` (Chinese+English). To enable this voice, convert
-// MeloTTS-Korean with sherpa-onnx's scripts/melo-tts and host the resulting .tar.bz2, then set the
-// URL + size below. Until then the model is registered but cannot be downloaded (URL is a
-// placeholder), so the rest of the pipeline (UI, selection, loading) is fully wired and ready.
-// See the step-by-step guide at:
-//   customtasks/speech/MELOTTS_KO_CONVERSION.md
+// There is no official sherpa-onnx MeloTTS *Korean* release; this archive was converted from the
+// PyTorch model at https://huggingface.co/myshell-ai/MeloTTS-Korean (MIT) using the toolkit in
+// `converters/melotts-ko/` (see its README and customtasks/speech/MELOTTS_KO_CONVERSION.md) and
+// hosted at the URL below. To rebuild/replace it, re-run that converter and update the two
+// constants here (the converter's set_app_constants.py does this automatically).
 private const val MELO_KO_ARCHIVE = "$MELO_TTS_DIR.tar.bz2"
-private const val MELO_KO_URL = "" // TODO(melo-ko): hosted .tar.bz2 URL for the converted model.
-private const val MELO_KO_SIZE_BYTES = 0L // TODO(melo-ko): archive size for the download progress bar.
+private const val MELO_KO_URL = "https://models.utopsoft.co.kr/tts/melo/onnx/vits-melo-tts-ko.tar.bz2"
+private const val MELO_KO_SIZE_BYTES = 162377762L // bytes; must match the hosted archive exactly.
 
 /**
  * A custom task that performs on-device text-to-speech using `sherpa-onnx` VITS models.
@@ -167,9 +164,8 @@ class TtsTask @Inject constructor() : CustomTask {
             name = TTS_MODEL_MELO_KO,
             info =
               "MeloTTS(MyShell.ai)의 한국어 음성. 매우 자연스러운 한국어 발화를 제공합니다. " +
-                "sherpa-onnx에서는 VITS 모델로 동작하며, 모델·토큰·렉시콘·사전(dict)을 하나의 압축 " +
-                "파일로 내려받아 기기에서 자동으로 해제합니다. (변환된 한국어 모델 호스팅이 필요합니다 " +
-                "— TtsTask의 TODO(melo-ko) 참고.)",
+                "sherpa-onnx에서는 VITS 모델로 동작하며, 모델·토큰·렉시콘을 하나의 압축 " +
+                "파일로 내려받아 기기에서 자동으로 해제합니다.",
             learnMoreUrl = "https://huggingface.co/myshell-ai/MeloTTS-Korean",
             url = MELO_KO_URL,
             downloadFileName = MELO_KO_ARCHIVE,

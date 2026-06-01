@@ -4,6 +4,11 @@
 (PyTorch, MIT)을 **sherpa-onnx에서 동작하는 VITS 모델**로 변환해, 이 앱의 음성 어시스턴트 ·
 Text to Speech 화면에서 쓰는 절차를 설명합니다.
 
+> **자동화된 도구가 이미 있습니다.** 이 문서가 설명하는 단계(아래 1~5절)는 저장소 루트의
+> `converters/melotts-ko/` 폴더에 실행 가능한 도구로 구현돼 있습니다. Windows 개발 PC에서는
+> 그 폴더에서 `convert.ps1` 한 줄이면 `vits-melo-tts-ko.tar.bz2`까지 만들어집니다. 아래 본문은
+> 그 도구가 내부적으로 무엇을 하는지에 대한 배경 설명으로 읽으세요.
+
 > **왜 변환이 필요한가**
 > 앱의 음성 스택은 전부 sherpa-onnx(ONNX Runtime, 네이티브 C++) 기반입니다. PyTorch 런타임이
 > 없고, MeloTTS의 한국어 텍스트 프런트엔드(MeCab-ko · g2pkk · 한국어 BERT)를 온디바이스에서

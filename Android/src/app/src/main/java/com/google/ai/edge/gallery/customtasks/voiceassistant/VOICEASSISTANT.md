@@ -110,7 +110,27 @@ KSS는 `onKoreanTtsStatus()`/`retryNeuralPreparation()`, MeloTTS는 `onMeloTtsSt
 1. STT 결과 텍스트 → `submitUserInput()`가 사용자 메시지 + 빈 스트리밍 어시스턴트 메시지를 추가.
 2. `runLlm()`이 `runtimeHelper.runInference()`로 추론. `<ctrl…>` 제어 토큰은 표시에서 제외.
 3. 부분 결과가 올 때마다 `updateStreamingAssistant()`로 마지막 어시스턴트 메시지를 갱신(화면 스트리밍).
-4. 완료(`done`)되면 최종 텍스트를 `speak()`로 낭독.
+4. 낭독은 **발화 모드(`speakMode`)** 에 따라 달라집니다(아래 4-1).
+
+#### 4-1. 발화 모드 (`TtsSpeakMode`) — 화면의 "발화:" 칩으로 선택
+
+- **`AFTER_COMPLETE`(전체 발화, 기본)**: 완료(`done`) 시 최종 텍스트를 `speak()`로 한 번에 낭독. 가장
+  자연스러운 억양.
+- **`STREAMING`(실시간 발화)**: 생성되는 동안 **문장 단위로 즉시 낭독**해 첫 음성까지의 지연을 크게 줄임.
+  동작:
+  - `beginStreamingSpeech()`가 문장 큐(`Channel`)와 단일 소비자 코루틴을 시작.
+  - 부분 결과마다 `enqueueReadySentences()`가 마지막 문장 종결부호(`. ! ? … 。 ! ? \n`)까지 완성된
+    구간을 잘라 큐에 넣음(종결부호 유지 → 억양 보존; 종결부호 없이 길어지면 `STREAMING_SOFT_FLUSH_CHARS`
+    에서 단어 경계로 강제 플러시).
+  - 소비자가 문장을 **순차적으로** 낭독: 신경망 음성은 `AudioPlayer.playToCompletion()`(재생 완료까지
+    suspend), 시스템 TTS는 `QUEUE_ADD`+utterance 완료 await로 끝까지 기다린 뒤 다음 문장.
+  - `done` 시 `finishStreamingSpeech()`가 남은 꼬리 문장을 넣고 채널을 닫아 소비자가 마저 비우고 종료.
+  - 끼어들기(새 발화/`stopSpeaking`/음성·모드 변경)는 `cancelStreamingSpeech()`로 큐·코루틴·오디오를
+    즉시 정리.
+
+> 두 모드 모두 화면 텍스트 스트리밍(3번)은 동일합니다 — **음성 타이밍만** 달라집니다. 신경망 음성의
+> 스트리밍은 문장마다 합성하므로 문장 사이에 약간의 합성 간격이 생길 수 있습니다(차후 선합성 파이프라인으로
+> 개선 가능).
 
 ### 5. Topic-driven prompts
 진입 주제는 `VoiceAssistantEntryParams`(싱글턴)에 담깁니다. 다른 화면/딥링크가 네비게이션 **전에**
