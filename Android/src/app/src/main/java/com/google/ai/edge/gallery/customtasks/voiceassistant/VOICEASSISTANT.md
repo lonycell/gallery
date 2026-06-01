@@ -71,18 +71,30 @@ Highlights:
 
 전환은 `selectSttEngine()`. 신경망 엔진은 READY일 때만 실제로 사용됩니다.
 
-### 3. Speech out (TTS) — 두 엔진
+### 3. Speech out (TTS) — 시스템 + 다중 신경망 음성
 - **시스템 `TextToSpeech`**: 한국어 시스템 음성 목록을 읽어 선택 가능.
-- **신경망 KSS 음성**(sherpa-onnx `OfflineTts`): 다운로드 후 unpack/init 되면 고품질·기기 독립 음성으로
-  제공. `AudioPlayer`로 재생.
+- **신경망 KSS 음성**(sherpa-onnx VITS `OfflineTts`): 다운로드 후 unpack/init 되면 고품질·기기 독립
+  음성으로 제공.
+- **신경망 MeloTTS 음성**(MyShell.ai, sherpa-onnx VITS): 더 자연스러운 한국어 음성. KSS와 동일한
+  파이프라인으로 독립적으로 내려받아 사용. (한국어 sherpa-onnx 변환본 호스팅이 필요 — `TtsTask`의
+  `TODO(melo-ko)` 참고. URL이 비어 있으면 다운로드 배너가 숨겨집니다.)
 
-선택은 `selectVoice()`. 신경망 음성은 "선택 + 로드 완료"일 때만 사용되고, 그 외에는 시스템 엔진으로
-낭독합니다.
+신경망 음성은 모두 `AudioPlayer`로 재생됩니다. 선택은 `selectVoice()`이고, 선택된 신경망 음성이
+"선택 + 로드 완료"일 때만 그 엔진으로, 그 외에는 시스템 엔진으로 낭독합니다. 음성 선택 칩은 로드된
+음성이 2개 이상일 때 표시됩니다.
 
-신경망 모델 준비는 단계 머신으로 UI에 노출됩니다:
+신경망 모델 준비는 각각 단계 머신으로 UI에 노출됩니다:
 `NOT_INSTALLED → DOWNLOADING → PREPARING(unpack/init) → READY` (실패 시 `ERROR`, 재시도 지원).
-TTS는 `onKoreanTtsStatus()`/`retryNeuralPreparation()`, STT는 `onNeuralSttStatus()`/
-`retryNeuralSttPreparation()`가 구동합니다.
+KSS는 `onKoreanTtsStatus()`/`retryNeuralPreparation()`, MeloTTS는 `onMeloTtsStatus()`/
+`retryMeloPreparation()`, 신경망 STT는 `onNeuralSttStatus()`/`retryNeuralSttPreparation()`가
+구동합니다.
+
+> **MeloTTS 참고**: MeloTTS는 sherpa-onnx에서 VITS 모델(`model.onnx` + `tokens.txt` +
+> `lexicon.txt` + `dict/`)로 동작합니다. 공식 sherpa-onnx 변환본은 `vits-melo-tts-zh_en`(중국어+
+> 영어)뿐이고 **한국어 변환본은 아직 공개되지 않았습니다.** `myshell-ai/MeloTTS-Korean`(PyTorch,
+> MIT)을 sherpa-onnx의 `scripts/melo-tts`로 변환해 `.tar.bz2`로 호스팅한 뒤, `TtsTask`의
+> `MELO_KO_URL`/`MELO_KO_SIZE_BYTES`를 채우면 즉시 동작합니다. 코드·UI·선택·로딩은 모두 준비돼
+> 있습니다.
 
 ### 4. Conversation loop
 1. STT 결과 텍스트 → `submitUserInput()`가 사용자 메시지 + 빈 스트리밍 어시스턴트 메시지를 추가.

@@ -23,6 +23,12 @@ import androidx.compose.runtime.Composable
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
+import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_DICT_DIR
+import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_DIR
+import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_LEXICON
+import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_MODEL_NAME
+import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_ONNX
+import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_TOKENS
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
 import com.google.ai.edge.gallery.customtasks.speech.extractTarBz2
 import com.google.ai.edge.gallery.data.Config
@@ -65,6 +71,8 @@ private val TTS_CONFIGS: List<Config> =
 const val TTS_MODEL_VITS_LJSPEECH = "VITS-LJSpeech (en)"
 // Shared with the Voice Assistant (which can reuse this downloaded voice for neural Korean speech).
 const val TTS_MODEL_VITS_KSS_KO = KOREAN_TTS_MODEL_NAME
+// MeloTTS Korean voice, also shared with the Voice Assistant.
+const val TTS_MODEL_MELO_KO = MELO_TTS_MODEL_NAME
 
 private const val VITS_LJS_BASE_URL = "https://huggingface.co/csukuangfj/vits-ljs/resolve/main"
 
@@ -76,6 +84,19 @@ private const val VITS_KSS_KO_URL =
 // Directory (inside the archive) and file names after extraction.
 private const val VITS_KSS_KO_DIR = "vits-mimic3-ko_KO-kss_low"
 private const val VITS_KSS_KO_ONNX = "ko_KO-kss_low.onnx"
+
+// MeloTTS Korean voice. MeloTTS (by MyShell.ai) gives very natural Korean speech; in sherpa-onnx it
+// runs as a VITS model (model.onnx + tokens.txt + lexicon.txt + dict/), shipped as one .tar.bz2.
+//
+// TODO(melo-ko): There is no official sherpa-onnx MeloTTS *Korean* release yet — only the
+// PyTorch model at https://huggingface.co/myshell-ai/MeloTTS-Korean (MIT) and the official
+// sherpa-onnx conversion `vits-melo-tts-zh_en` (Chinese+English). To enable this voice, convert
+// MeloTTS-Korean with sherpa-onnx's scripts/melo-tts and host the resulting .tar.bz2, then set the
+// URL + size below. Until then the model is registered but cannot be downloaded (URL is a
+// placeholder), so the rest of the pipeline (UI, selection, loading) is fully wired and ready.
+private const val MELO_KO_ARCHIVE = "$MELO_TTS_DIR.tar.bz2"
+private const val MELO_KO_URL = "" // TODO(melo-ko): hosted .tar.bz2 URL for the converted model.
+private const val MELO_KO_SIZE_BYTES = 0L // TODO(melo-ko): archive size for the download progress bar.
 
 /**
  * A custom task that performs on-device text-to-speech using `sherpa-onnx` VITS models.
@@ -140,6 +161,19 @@ class TtsTask @Inject constructor() : CustomTask {
             sizeInBytes = 66838474L,
             configs = TTS_CONFIGS,
           ),
+          Model(
+            name = TTS_MODEL_MELO_KO,
+            info =
+              "MeloTTS(MyShell.ai)의 한국어 음성. 매우 자연스러운 한국어 발화를 제공합니다. " +
+                "sherpa-onnx에서는 VITS 모델로 동작하며, 모델·토큰·렉시콘·사전(dict)을 하나의 압축 " +
+                "파일로 내려받아 기기에서 자동으로 해제합니다. (변환된 한국어 모델 호스팅이 필요합니다 " +
+                "— TtsTask의 TODO(melo-ko) 참고.)",
+            learnMoreUrl = "https://huggingface.co/myshell-ai/MeloTTS-Korean",
+            url = MELO_KO_URL,
+            downloadFileName = MELO_KO_ARCHIVE,
+            sizeInBytes = MELO_KO_SIZE_BYTES,
+            configs = TTS_CONFIGS,
+          ),
         ),
     )
 
@@ -156,6 +190,7 @@ class TtsTask @Inject constructor() : CustomTask {
         val vitsConfig =
           when (model.name) {
             TTS_MODEL_VITS_KSS_KO -> buildKoreanVitsConfig(context, model)
+            TTS_MODEL_MELO_KO -> buildMeloVitsConfig(context, model)
             else -> buildLexiconVitsConfig(context, model)
           }
         if (vitsConfig == null) {
@@ -220,6 +255,39 @@ class TtsTask @Inject constructor() : CustomTask {
       model = onnxFile.absolutePath,
       tokens = tokensFile.absolutePath,
       dataDir = dataDir.absolutePath,
+    )
+  }
+
+  /**
+   * Builds the VITS config for the MeloTTS Korean voice. Like the KSS voice it was downloaded as a
+   * single `.tar.bz2`; here we unpack it (once) and point sherpa-onnx at the extracted `.onnx`,
+   * `tokens.txt`, `lexicon.txt`, and the `dict/` directory (MeloTTS's text frontend). MeloTTS uses
+   * lexicon + dictDir rather than the espeak `dataDir` used by KSS.
+   */
+  private fun buildMeloVitsConfig(context: Context, model: Model): OfflineTtsVitsModelConfig? {
+    val archiveFile = File(model.getPath(context = context))
+    val baseDir = archiveFile.parentFile ?: return null
+    val extractedRoot = File(baseDir, MELO_TTS_DIR)
+    val onnxFile = File(extractedRoot, MELO_TTS_ONNX)
+    val tokensFile = File(extractedRoot, MELO_TTS_TOKENS)
+    val lexiconFile = File(extractedRoot, MELO_TTS_LEXICON)
+    val dictDir = File(extractedRoot, MELO_TTS_DICT_DIR)
+
+    val ready = onnxFile.exists() && tokensFile.exists() && lexiconFile.exists()
+    if (!ready) {
+      if (!archiveFile.exists()) {
+        return null
+      }
+      val ok = extractTarBz2(archive = archiveFile, destDir = baseDir)
+      if (!ok || !onnxFile.exists() || !tokensFile.exists() || !lexiconFile.exists()) {
+        return null
+      }
+    }
+    return OfflineTtsVitsModelConfig(
+      model = onnxFile.absolutePath,
+      lexicon = lexiconFile.absolutePath,
+      tokens = tokensFile.absolutePath,
+      dictDir = if (dictDir.isDirectory) dictDir.absolutePath else "",
     )
   }
 

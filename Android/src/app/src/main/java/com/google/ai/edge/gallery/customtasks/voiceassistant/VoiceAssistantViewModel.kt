@@ -41,6 +41,8 @@ import com.google.ai.edge.gallery.customtasks.speech.AudioRecorder
 import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralStt
 import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralTts
 import com.google.ai.edge.gallery.customtasks.speech.KoreanTtsLoadResult
+import com.google.ai.edge.gallery.customtasks.speech.MeloNeuralTts
+import com.google.ai.edge.gallery.customtasks.speech.MeloTtsLoadResult
 import com.google.ai.edge.gallery.customtasks.speech.NeuralSttLoadResult
 import com.google.ai.edge.gallery.customtasks.speech.SPEECH_SAMPLE_RATE
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
@@ -145,8 +147,10 @@ data class VoiceAssistantUiState(
   val voices: List<VoiceOption> = listOf(),
   /** The currently selected voice id. */
   val selectedVoiceId: String = "",
-  /** State of the downloadable Korean neural voice (download → unpack/init → ready/error). */
+  /** State of the downloadable Korean neural voice (KSS) (download → unpack/init → ready/error). */
   val neuralVoice: NeuralVoiceState = NeuralVoiceState(),
+  /** State of the downloadable MeloTTS Korean voice (same pipeline as [neuralVoice]). */
+  val meloVoice: NeuralVoiceState = NeuralVoiceState(),
   /** Which engine is used to recognize the user's speech. */
   val sttEngine: SttEngine = SttEngine.SYSTEM,
   /** State of the downloadable neural speech recognizer (download → init → ready/error). */
@@ -187,9 +191,11 @@ constructor(
 
   private var tts: TextToSpeech? = null
 
-  // Optional higher-quality Korean neural voice (sherpa-onnx). When loaded, it is offered as one of
-  // the selectable voices and played back through [AudioPlayer].
+  // Optional higher-quality Korean neural voices (sherpa-onnx). When loaded, each is offered as one
+  // of the selectable voices and played back through [AudioPlayer]. [neuralTts] is the KSS voice;
+  // [meloTts] is the MeloTTS voice. Both are independent downloads.
   private var neuralTts: OfflineTts? = null
+  private var meloTts: OfflineTts? = null
   private val audioPlayer = AudioPlayer()
 
   // Optional on-device neural speech recognizer (sherpa-onnx SenseVoice). When loaded and selected,
@@ -205,8 +211,9 @@ constructor(
   private val _mcpPermissionRequest = MutableStateFlow<AskMcpToolCallPermissionAction?>(null)
   val mcpPermissionRequest = _mcpPermissionRequest.asStateFlow()
 
-  // Id used for the neural voice option.
+  // Ids used for the neural voice options.
   private val neuralVoiceId = "neural:kss"
+  private val meloVoiceId = "neural:melo"
   // System TTS voices (Korean), indexed by their VoiceOption id ("system:<voiceName>").
   private val systemVoicesById = mutableMapOf<String, Voice>()
 
@@ -298,6 +305,16 @@ constructor(
         )
       )
     }
+    if (meloTts != null) {
+      options.add(
+        VoiceOption(
+          id = meloVoiceId,
+          label = "MeloTTS (ko)",
+          subtitle = "자연스러운 한국어",
+          isNeural = true,
+        )
+      )
+    }
     var index = 1
     for ((id, voice) in systemVoicesById) {
       options.add(
@@ -311,13 +328,14 @@ constructor(
       index++
     }
 
-    // Pick a default selection if none is set or the current one disappeared.
+    // Pick a default selection if none is set or the current one disappeared. Prefer a neural voice
+    // (whichever loaded) over a system voice.
     val current = _uiState.value.selectedVoiceId
     val stillValid = options.any { it.id == current }
     val selected =
       when {
         stillValid -> current
-        options.any { it.isNeural } -> neuralVoiceId
+        options.any { it.isNeural } -> options.first { it.isNeural }.id
         options.isNotEmpty() -> options.first().id
         else -> ""
       }
@@ -607,6 +625,108 @@ constructor(
     _uiState.update { it.copy(neuralVoice = state) }
   }
 
+  // region MeloTTS Korean voice (optional, downloadable) — mirrors the KSS neural-voice pipeline.
+
+  private var meloTtsModel: Model? = null
+  private var preparingMelo = false
+
+  /**
+   * Feeds the latest download state of the MeloTTS Korean voice from the screen and drives its
+   * preparation (download → unpack/init → ready), exposed via [uiState] like the KSS voice.
+   */
+  fun onMeloTtsStatus(model: Model?, downloadStatus: ModelDownloadStatus?) {
+    meloTtsModel = model
+    if (model == null) {
+      updateMeloStage(NeuralVoiceState(stage = NeuralVoiceStage.NOT_INSTALLED))
+      return
+    }
+    if (meloTts != null) {
+      return
+    }
+    when (downloadStatus?.status) {
+      ModelDownloadStatusType.IN_PROGRESS,
+      ModelDownloadStatusType.PARTIALLY_DOWNLOADED,
+      ModelDownloadStatusType.UNZIPPING -> {
+        val total = downloadStatus.totalBytes
+        val received = downloadStatus.receivedBytes
+        val pct = if (total > 0L) (received * 100 / total).toInt() else -1
+        updateMeloStage(
+          NeuralVoiceState(
+            stage = NeuralVoiceStage.DOWNLOADING,
+            downloadPercent = pct,
+            downloadedBytes = received,
+            totalBytes = total,
+            bytesPerSecond = downloadStatus.bytesPerSecond,
+            remainingMs = downloadStatus.remainingMs,
+          )
+        )
+      }
+      ModelDownloadStatusType.SUCCEEDED -> prepareMeloEngine(model)
+      ModelDownloadStatusType.FAILED ->
+        updateMeloStage(
+          NeuralVoiceState(
+            stage = NeuralVoiceStage.ERROR,
+            error = downloadStatus.errorMessage.ifEmpty { "다운로드에 실패했습니다." },
+          )
+        )
+      else ->
+        if (!preparingMelo && _uiState.value.meloVoice.stage != NeuralVoiceStage.PREPARING) {
+          updateMeloStage(NeuralVoiceState(stage = NeuralVoiceStage.NOT_INSTALLED))
+        }
+    }
+  }
+
+  /** Unpacks the downloaded MeloTTS archive and initializes the sherpa-onnx engine. */
+  private fun prepareMeloEngine(model: Model) {
+    if (preparingMelo || meloTts != null) {
+      return
+    }
+    preparingMelo = true
+    updateMeloStage(NeuralVoiceState(stage = NeuralVoiceStage.PREPARING, unpackPercent = -1))
+    viewModelScope.launch {
+      val result =
+        withContext(Dispatchers.IO) {
+          MeloNeuralTts.load(
+            context = context,
+            model = model,
+            onUnpackProgress = { pct ->
+              updateMeloStage(
+                NeuralVoiceState(stage = NeuralVoiceStage.PREPARING, unpackPercent = pct)
+              )
+            },
+          )
+        }
+      when (result) {
+        is MeloTtsLoadResult.Success -> {
+          meloTts = result.tts
+          updateMeloStage(NeuralVoiceState(stage = NeuralVoiceStage.READY))
+          rebuildVoiceOptions()
+          Log.d(TAG, "MeloTTS Korean voice ready.")
+        }
+        is MeloTtsLoadResult.NotDownloaded ->
+          updateMeloStage(NeuralVoiceState(stage = NeuralVoiceStage.NOT_INSTALLED))
+        is MeloTtsLoadResult.Failure ->
+          updateMeloStage(NeuralVoiceState(stage = NeuralVoiceStage.ERROR, error = result.message))
+      }
+      preparingMelo = false
+    }
+  }
+
+  /** Retries preparing the MeloTTS voice after a failure (re-extract; the archive is reused). */
+  fun retryMeloPreparation() {
+    val model = meloTtsModel ?: return
+    viewModelScope.launch {
+      withContext(Dispatchers.IO) { MeloNeuralTts.clearExtracted(context, model) }
+      prepareMeloEngine(model)
+    }
+  }
+
+  private fun updateMeloStage(state: NeuralVoiceState) {
+    _uiState.update { it.copy(meloVoice = state) }
+  }
+
+  // endregion
+
   // region Neural STT (optional, downloadable) — mirrors the neural TTS pipeline.
 
   /**
@@ -846,13 +966,16 @@ constructor(
   // region Text to speech (TTS)
 
   private fun speak(text: String) {
-    // Use whichever voice the user selected. The neural voice is used only when it is both selected
+    // Use whichever voice the user selected. A neural voice is used only when it is both selected
     // and loaded; otherwise we speak with the system engine (which already has the chosen system
     // voice applied via selectVoice/rebuildVoiceOptions).
     val selectedId = _uiState.value.selectedVoiceId
-    val engine = neuralTts
-    if (engine != null && (selectedId == neuralVoiceId || selectedId.isEmpty())) {
-      speakNeural(engine, text)
+    val melo = meloTts
+    val kss = neuralTts
+    if (melo != null && selectedId == meloVoiceId) {
+      speakNeural(melo, text)
+    } else if (kss != null && (selectedId == neuralVoiceId || selectedId.isEmpty())) {
+      speakNeural(kss, text)
     } else {
       val system = tts ?: return
       system.speak(text, TextToSpeech.QUEUE_FLUSH, null, ASSISTANT_UTTERANCE_ID)
@@ -912,6 +1035,7 @@ constructor(
     try {
       audioPlayer.stop()
       neuralTts?.release()
+      meloTts?.release()
     } catch (e: Exception) {
       Log.w(TAG, "Failed to release neural TTS", e)
     }
