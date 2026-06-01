@@ -7,5 +7,6 @@ MeloTTS/
 *.tar.bz2
 tokens.txt
 lexicon.txt
+speakers.txt
 CONSTANTS.txt
 __pycache__/

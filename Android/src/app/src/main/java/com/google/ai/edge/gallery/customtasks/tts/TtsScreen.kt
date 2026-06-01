@@ -33,6 +33,10 @@ import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -42,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -54,6 +59,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
 /** The main screen for the Text to Speech custom task. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TtsScreen(
   modelManagerViewModel: ModelManagerViewModel,
@@ -75,6 +81,17 @@ fun TtsScreen(
   }
 
   val instance = model.instance as TtsModelInstance
+  // Multi-speaker models (e.g. a multi-speaker Korean voice) expose more than one voice; the user
+  // picks one by name/index and it's passed as the synthesis `sid`. Single-speaker models hide this.
+  val numSpeakers = instance.tts.numSpeakers()
+  // Reset the selection when the model changes; clamp keeps it valid for the current model.
+  var sid by rememberSaveable(model.name) { mutableIntStateOf(0) }
+  if (sid >= numSpeakers) {
+    sid = 0
+  }
+  val speakerLabel: (Int) -> String = { i ->
+    instance.speakerNames.getOrNull(i) ?: "음성 ${i + 1}"
+  }
   var text by rememberSaveable { mutableStateOf("Hello! This is on-device text to speech.") }
   // Re-read the speed whenever a config value changes (e.g. via the app bar's config dialog).
   val speed by
@@ -90,6 +107,33 @@ fun TtsScreen(
       modifier = Modifier.fillMaxWidth().weight(1f),
       keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
     )
+
+    // Voice (speaker) picker — only shown when the model actually has more than one voice.
+    if (numSpeakers > 1) {
+      Spacer(modifier = Modifier.height(8.dp))
+      var expanded by remember { mutableStateOf(false) }
+      ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+          value = speakerLabel(sid),
+          onValueChange = {},
+          readOnly = true,
+          label = { Text("음성 (${numSpeakers}개 중 선택)") },
+          trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+          modifier = Modifier.menuAnchor().fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+          for (i in 0 until numSpeakers) {
+            DropdownMenuItem(
+              text = { Text(speakerLabel(i)) },
+              onClick = {
+                sid = i
+                expanded = false
+              },
+            )
+          }
+        }
+      }
+    }
 
     Spacer(modifier = Modifier.height(8.dp))
     Text(
@@ -110,7 +154,7 @@ fun TtsScreen(
       modifier = Modifier.fillMaxWidth(),
     ) {
       Button(
-        onClick = { viewModel.speak(instance = instance, text = text, speed = speed) },
+        onClick = { viewModel.speak(instance = instance, text = text, speed = speed, sid = sid) },
         enabled = !uiState.isSynthesizing && text.isNotBlank(),
         modifier = Modifier.weight(1f),
       ) {

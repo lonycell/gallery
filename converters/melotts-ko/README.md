@@ -114,11 +114,19 @@ vits-melo-tts-ko/        ← MELO_TTS_DIR
 ├── model.onnx           ← MELO_TTS_ONNX   (필수)
 ├── tokens.txt           ← MELO_TTS_TOKENS (필수)
 ├── lexicon.txt          ← MELO_TTS_LEXICON(필수)
+├── speakers.txt         (선택, 다화자 모델일 때만 — 음성 이름 목록)
 └── LICENSE              (자동 포함, MIT 고지)
 ```
 
 `dict/`는 중국어 jieba 전용이라 한국어엔 불필요합니다(메타데이터 `jieba=0`). 앱도 `dict/`를 선택
 사항으로 처리합니다.
+
+**다화자(여러 목소리) 모델일 때**: `export-onnx-ko.py`가 `n_speakers>1`이면 `speakers.txt`(화자 id
+순서대로 한 줄에 이름 하나)를 자동 생성하고, `package.py`가 아카이브에 포함합니다. 앱의 **Text to
+Speech 화면은 모델의 `numSpeakers`를 읽어 "음성" 선택 드롭다운을 표시**하고, `speakers.txt`가 있으면
+그 이름을, 없으면 "음성 1·2·…"로 라벨을 붙여 `generate(text, sid, speed)`의 `sid`로 음색을
+전환합니다. (현재 공식 한국어 모델은 1화자라 드롭다운이 숨겨집니다 — 다화자 파인튜닝본을 넣으면
+자동으로 나타납니다.)
 
 ### 런타임 인식에 필요한 메타데이터 (스크립트가 자동 설정)
 

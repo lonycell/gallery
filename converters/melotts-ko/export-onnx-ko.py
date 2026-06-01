@@ -61,6 +61,20 @@ def generate_tokens(symbol_list: List[str]) -> None:
     print(f"[tokens] wrote tokens.txt with {len(symbol_list)} symbols")
 
 
+def generate_speakers(spk2id: Dict[str, int]) -> None:
+    """Write speakers.txt: one friendly voice label per line, in speaker-id (sid) order.
+
+    The Android app reads this (next to model.onnx) to label voices in its speaker picker. Only
+    written for multi-speaker models; single-speaker models don't need it (the app hides the picker
+    when numSpeakers == 1).
+    """
+    names = [name for name, _ in sorted(spk2id.items(), key=lambda kv: kv[1])]
+    with open("speakers.txt", "w", encoding="utf-8") as f:
+        for n in names:
+            f.write(f"{n}\n")
+    print(f"[speakers] wrote speakers.txt with {len(names)} voices: {', '.join(names)}")
+
+
 def add_new_english_words(lexicon: Dict[str, Any]) -> None:
     """Hook to extend the English (code-switching) lexicon, in-place.
 
@@ -263,6 +277,11 @@ def main() -> None:
     print("[model] loading TTS(language='KR') (downloads from Hugging Face on first run)...")
     model = TTS(language=LANGUAGE, device="cpu")
     generate_tokens(model.hps["symbols"])
+
+    # For multi-speaker models, emit friendly voice labels the app can show in its speaker picker.
+    spk2id = dict(model.hps.data.spk2id)
+    if len(spk2id) > 1:
+        generate_speakers(spk2id)
 
     torch_model = ModelWrapper(model)
 

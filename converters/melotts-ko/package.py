@@ -82,6 +82,12 @@ def main() -> None:
             tar.add(dict_path, arcname=arc(DICT_DIR))
             print(f"          + {arc(DICT_DIR)}/ (optional)")
 
+        # Optional friendly voice labels for a multi-speaker model (one name per line, sid order).
+        speakers_path = os.path.join(args.src, "speakers.txt")
+        if os.path.isfile(speakers_path):
+            tar.add(speakers_path, arcname=arc("speakers.txt"))
+            print(f"          + {arc('speakers.txt')} (optional, multi-speaker labels)")
+
         # Embed the MIT notice so the hosted archive carries its license.
         license_tmp = os.path.join(args.out, "_LICENSE.tmp")
         with open(license_tmp, "w", encoding="utf-8") as lf:

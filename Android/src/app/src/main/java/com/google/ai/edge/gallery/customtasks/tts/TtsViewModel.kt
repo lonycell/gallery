@@ -43,16 +43,18 @@ class TtsViewModel @Inject constructor() : ViewModel() {
 
   private val player = AudioPlayer()
 
-  fun speak(instance: TtsModelInstance, text: String, speed: Float) {
+  fun speak(instance: TtsModelInstance, text: String, speed: Float, sid: Int = 0) {
     if (text.isBlank()) {
       return
     }
+    // Guard against a stale/out-of-range speaker id (e.g. after switching models).
+    val safeSid = sid.coerceIn(0, (instance.tts.numSpeakers() - 1).coerceAtLeast(0))
     viewModelScope.launch {
       _uiState.update { it.copy(isSynthesizing = true, error = "") }
       try {
         val audio =
           withContext(Dispatchers.Default) {
-            instance.tts.generate(text = text, sid = 0, speed = speed)
+            instance.tts.generate(text = text, sid = safeSid, speed = speed)
           }
         player.play(samples = audio.samples, sampleRate = audio.sampleRate)
       } catch (e: Throwable) {

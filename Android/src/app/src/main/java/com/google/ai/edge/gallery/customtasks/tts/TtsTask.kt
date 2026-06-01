@@ -49,8 +49,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** Wraps an initialized `sherpa-onnx` [OfflineTts] engine so it can be stored on [Model.instance]. */
-class TtsModelInstance(val tts: OfflineTts)
+/**
+ * Wraps an initialized `sherpa-onnx` [OfflineTts] engine so it can be stored on [Model.instance].
+ *
+ * [speakerNames] are optional, human-friendly labels for a multi-speaker model's voices, in speaker
+ * id (sid) order. They come from an optional `speakers.txt` packaged next to the model (one label
+ * per line). When absent, the UI falls back to numbered voices ("음성 1", "음성 2", …). The number of
+ * voices itself is always available via `tts.numSpeakers()`.
+ */
+class TtsModelInstance(val tts: OfflineTts, val speakerNames: List<String> = emptyList())
 
 /** Config key controlling the synthesis speed (1.0 = normal). */
 val TTS_CONFIG_KEY_SPEED = ConfigKey(id = "tts_speed", label = "Speed")
@@ -205,11 +212,31 @@ class TtsTask @Inject constructor() : CustomTask {
                 provider = "cpu",
               )
           )
-        model.instance = TtsModelInstance(tts = OfflineTts(config = config))
+        // Optional friendly voice labels for multi-speaker models: a `speakers.txt` (one name per
+        // line, in sid order) sitting next to the model file. Absent for single-speaker models.
+        val speakerNames = readSpeakerNames(File(vitsConfig.model).parentFile)
+        model.instance =
+          TtsModelInstance(tts = OfflineTts(config = config), speakerNames = speakerNames)
         onDone("")
       } catch (e: Throwable) {
         onDone(e.message ?: "Failed to initialize the TTS model")
       }
+    }
+  }
+
+  /**
+   * Reads optional friendly voice labels from `speakers.txt` in [dir] (one per line, in sid order).
+   * Returns an empty list when the file is absent or unreadable — the UI then numbers voices.
+   */
+  private fun readSpeakerNames(dir: File?): List<String> {
+    val file = dir?.let { File(it, "speakers.txt") } ?: return emptyList()
+    if (!file.isFile) {
+      return emptyList()
+    }
+    return try {
+      file.readLines().map { it.trim() }.filter { it.isNotEmpty() }
+    } catch (e: Throwable) {
+      emptyList()
     }
   }
 
