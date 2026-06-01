@@ -94,6 +94,8 @@ private const val VITS_KSS_KO_ONNX = "ko_KO-kss_low.onnx"
 // MeloTTS-Korean with sherpa-onnx's scripts/melo-tts and host the resulting .tar.bz2, then set the
 // URL + size below. Until then the model is registered but cannot be downloaded (URL is a
 // placeholder), so the rest of the pipeline (UI, selection, loading) is fully wired and ready.
+// See the step-by-step guide at:
+//   customtasks/speech/MELOTTS_KO_CONVERSION.md
 private const val MELO_KO_ARCHIVE = "$MELO_TTS_DIR.tar.bz2"
 private const val MELO_KO_URL = "" // TODO(melo-ko): hosted .tar.bz2 URL for the converted model.
 private const val MELO_KO_SIZE_BYTES = 0L // TODO(melo-ko): archive size for the download progress bar.
