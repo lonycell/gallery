@@ -49,8 +49,8 @@ Highlights:
 | `prompts/TopicPrompt.kt` | 주제별 프롬프트 번들(제목·시스템 프롬프트·스타터·언어). |
 
 관련(공유) 코드:
-- `customtasks/speech/` — `KoreanNeuralStt`(SenseVoice), `KoreanNeuralTts`(KSS), `AudioRecorder`,
-  `AudioPlayer` 등 음성 파이프라인.
+- `customtasks/speech/` — `KoreanNeuralStt`(SenseVoice), `WhisperNeuralStt`(Whisper),
+  `KoreanNeuralTts`(KSS), `MeloNeuralTts`(MeloTTS), `AudioRecorder`, `AudioPlayer` 등 음성 파이프라인.
 - `customtasks/agentchat/AgentTools.kt` — 스킬/MCP 매니저를 묶은 공유 도구 표면(Agent Skills와 동일).
 - `customtasks/kakao/` — 카카오톡 전송 도구 + 스킬 예제 (`README.md` 참고).
 
@@ -63,13 +63,22 @@ Highlights:
 `llm_chat`용으로 허용된 LLM을 이 태스크에도 모두 추가하므로, 사용자는 표준 모델 선택기로 동일한
 모델을 내려받고 전환할 수 있습니다 (`ModelManagerViewModel.loadModelAllowlist`).
 
-### 2. Speech in (STT) — 두 엔진
+### 2. Speech in (STT) — 시스템 + 다중 신경망 인식기
 - **SYSTEM**: 기기 내장 `android.speech.SpeechRecognizer` (기본, 다운로드 불필요, 저지연, 부분 결과
   스트리밍 지원).
-- **NEURAL**: 다운로드형 sherpa-onnx **SenseVoice** 인식기. 선택 후 준비(READY)되면 시스템 인식기를
-  대체. `AudioRecorder`로 원시 PCM을 녹음해 디코드.
+- **NEURAL (SenseVoice)**: 다운로드형 sherpa-onnx 다국어 인식기(~239MB). `AudioRecorder`로 원시
+  PCM을 녹음해 디코드.
+- **WHISPER (small, 다국어)**: 다운로드형 sherpa-onnx Whisper 인식기(~374MB). 한국어 정확도가 높지만
+  모델이 크고 디코딩이 (자기회귀라) 더 느립니다. `language="ko"`로 구성. Speech to Text 태스크의
+  `Whisper small (multilingual)` 모델과 다운로드를 공유합니다.
 
-전환은 `selectSttEngine()`. 신경망 엔진은 READY일 때만 실제로 사용됩니다.
+전환은 `selectSttEngine()`. **메모리 보호를 위해 신경망 인식기는 한 번에 하나만** `neuralStt`
+슬롯에 로드되며(선택 시 로드, 전환 시 이전 인식기 해제 — `ensureActiveRecognizer`/
+`releaseActiveRecognizer`), `loadedSttEngine`이 현재 로드된 엔진을 추적합니다. 각 모델의 다운로드
+가용성은 `uiState.neuralStt`(SenseVoice) / `uiState.whisperStt`(Whisper)로 따로 표시되고,
+다운로드 상태는 `onNeuralSttStatus()` / `onWhisperSttStatus()`가, 로드 실패 재시도는
+`retryNeuralSttPreparation()` / `retryWhisperSttPreparation()`가 구동합니다. 신경망 엔진은
+READY(다운로드 완료) + 선택 + 로드 완료일 때만 실제로 사용되고, 그 외에는 시스템 인식기로 동작합니다.
 
 ### 3. Speech out (TTS) — 시스템 + 다중 신경망 음성
 - **시스템 `TextToSpeech`**: 한국어 시스템 음성 목록을 읽어 선택 가능.
@@ -86,8 +95,9 @@ Highlights:
 신경망 모델 준비는 각각 단계 머신으로 UI에 노출됩니다:
 `NOT_INSTALLED → DOWNLOADING → PREPARING(unpack/init) → READY` (실패 시 `ERROR`, 재시도 지원).
 KSS는 `onKoreanTtsStatus()`/`retryNeuralPreparation()`, MeloTTS는 `onMeloTtsStatus()`/
-`retryMeloPreparation()`, 신경망 STT는 `onNeuralSttStatus()`/`retryNeuralSttPreparation()`가
-구동합니다.
+`retryMeloPreparation()`, 신경망 STT는 SenseVoice `onNeuralSttStatus()`/
+`retryNeuralSttPreparation()` · Whisper `onWhisperSttStatus()`/`retryWhisperSttPreparation()`가
+구동합니다. (STT 인식기는 위 2절처럼 한 번에 하나만 메모리에 로드됩니다.)
 
 > **MeloTTS 참고**: MeloTTS는 sherpa-onnx에서 VITS 모델(`model.onnx` + `tokens.txt` +
 > `lexicon.txt` + `dict/`)로 동작합니다. 공식 sherpa-onnx 변환본은 `vits-melo-tts-zh_en`(중국어+

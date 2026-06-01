@@ -25,6 +25,10 @@ import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.speech.NEURAL_STT_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.SPEECH_SAMPLE_RATE
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
+import com.google.ai.edge.gallery.customtasks.speech.WHISPER_KO_STT_MODEL_NAME
+import com.google.ai.edge.gallery.customtasks.speech.WHISPER_SMALL_DECODER
+import com.google.ai.edge.gallery.customtasks.speech.WHISPER_SMALL_ENCODER
+import com.google.ai.edge.gallery.customtasks.speech.WHISPER_SMALL_TOKENS
 import com.google.ai.edge.gallery.data.Config
 import com.google.ai.edge.gallery.data.ConfigKey
 import com.google.ai.edge.gallery.data.Model
@@ -62,23 +66,51 @@ private val SENSE_VOICE_CONFIGS: List<Config> =
     )
   )
 
+// Multilingual Whisper takes a single spoken-language hint; "auto" lets Whisper detect it. Default
+// to Korean since these entries are added for good Korean recognition.
+private val WHISPER_LANGUAGES = listOf("ko", "auto", "en", "ja", "zh")
+
+private val WHISPER_KO_CONFIGS: List<Config> =
+  listOf(
+    SegmentedButtonConfig(
+      key = STT_CONFIG_KEY_LANGUAGE,
+      defaultValue = "ko",
+      options = WHISPER_LANGUAGES,
+    )
+  )
+
 // Shared with the Voice Assistant (which can reuse this downloaded recognizer for neural STT).
 const val STT_MODEL_SENSE_VOICE = NEURAL_STT_MODEL_NAME
 const val STT_MODEL_WHISPER_TINY_EN = "Whisper-tiny (en)"
+const val STT_MODEL_WHISPER_BASE_KO = "Whisper base (multilingual)"
+// The small multilingual model is also offered to the Voice Assistant for high-quality Korean.
+const val STT_MODEL_WHISPER_SMALL_KO = WHISPER_KO_STT_MODEL_NAME
 
 private const val SENSE_VOICE_BASE_URL =
   "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main"
 private const val WHISPER_BASE_URL =
   "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main"
+// Multilingual Whisper checkpoints (base / small) converted for sherpa-onnx. Each ships as a split
+// encoder/decoder (int8) plus a tokens file. They support Korean via the language hint.
+private const val WHISPER_BASE_ML_URL =
+  "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/main"
+private const val WHISPER_SMALL_ML_URL =
+  "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/main"
+private const val WHISPER_BASE_ENCODER = "base-encoder.int8.onnx"
+private const val WHISPER_BASE_DECODER = "base-decoder.int8.onnx"
+private const val WHISPER_BASE_TOKENS = "base-tokens.txt"
 
 /**
  * A custom task that transcribes recorded microphone audio to text fully on-device using
  * `sherpa-onnx` ASR models.
  *
- * Two downloadable models are offered:
+ * Downloadable models are offered:
  * - **SenseVoice**: a multilingual model (Chinese, English, Japanese, Korean, Cantonese) shipped as
  *   a single `.onnx` file plus `tokens.txt`.
  * - **Whisper tiny (en)**: a lightweight English model split into encoder/decoder files.
+ * - **Whisper base / small (multilingual)**: OpenAI Whisper checkpoints with strong Korean support
+ *   (language defaults to Korean, configurable). The `small` model is also offered to the Voice
+ *   Assistant for high-quality on-device Korean recognition.
  *
  * Model files are fetched through the app's standard download mechanism and wired into an
  * [OfflineRecognizer] on initialization. The [SttScreen] records audio and feeds it to the
@@ -145,6 +177,61 @@ class SttTask @Inject constructor() : CustomTask {
                 ),
               ),
           ),
+          Model(
+            name = STT_MODEL_WHISPER_BASE_KO,
+            info =
+              "Multilingual speech recognition (OpenAI Whisper base). Good Korean support; smaller " +
+                "and faster than Whisper small. Set the spoken language in the config menu " +
+                "(defaults to Korean), or pick \"auto\" to auto-detect.",
+            learnMoreUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base",
+            url = "$WHISPER_BASE_ML_URL/$WHISPER_BASE_ENCODER",
+            downloadFileName = WHISPER_BASE_ENCODER,
+            sizeInBytes = 29120534L,
+            extraDataFiles =
+              listOf(
+                ModelDataFile(
+                  name = "decoder",
+                  url = "$WHISPER_BASE_ML_URL/$WHISPER_BASE_DECODER",
+                  downloadFileName = WHISPER_BASE_DECODER,
+                  sizeInBytes = 130672026L,
+                ),
+                ModelDataFile(
+                  name = "tokens",
+                  url = "$WHISPER_BASE_ML_URL/$WHISPER_BASE_TOKENS",
+                  downloadFileName = WHISPER_BASE_TOKENS,
+                  sizeInBytes = 816730L,
+                ),
+              ),
+            configs = WHISPER_KO_CONFIGS,
+          ),
+          Model(
+            name = STT_MODEL_WHISPER_SMALL_KO,
+            info =
+              "Multilingual speech recognition (OpenAI Whisper small). Stronger Korean accuracy " +
+                "than base, but a larger download and slower on-device decoding. Set the spoken " +
+                "language in the config menu (defaults to Korean), or pick \"auto\". Also offered " +
+                "in the Voice Assistant.",
+            learnMoreUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small",
+            url = "$WHISPER_SMALL_ML_URL/$WHISPER_SMALL_ENCODER",
+            downloadFileName = WHISPER_SMALL_ENCODER,
+            sizeInBytes = 112442483L,
+            extraDataFiles =
+              listOf(
+                ModelDataFile(
+                  name = "decoder",
+                  url = "$WHISPER_SMALL_ML_URL/$WHISPER_SMALL_DECODER",
+                  downloadFileName = WHISPER_SMALL_DECODER,
+                  sizeInBytes = 262226114L,
+                ),
+                ModelDataFile(
+                  name = "tokens",
+                  url = "$WHISPER_SMALL_ML_URL/$WHISPER_SMALL_TOKENS",
+                  downloadFileName = WHISPER_SMALL_TOKENS,
+                  sizeInBytes = 816730L,
+                ),
+              ),
+            configs = WHISPER_KO_CONFIGS,
+          ),
         ),
     )
 
@@ -185,6 +272,10 @@ class SttTask @Inject constructor() : CustomTask {
             modelType = "whisper",
           )
         }
+        STT_MODEL_WHISPER_BASE_KO ->
+          buildWhisperConfig(context, model, WHISPER_BASE_DECODER, WHISPER_BASE_TOKENS)
+        STT_MODEL_WHISPER_SMALL_KO ->
+          buildWhisperConfig(context, model, WHISPER_SMALL_DECODER, WHISPER_SMALL_TOKENS)
         else -> {
           // SenseVoice (default).
           val modelPath = model.getPath(context = context)
@@ -207,6 +298,38 @@ class SttTask @Inject constructor() : CustomTask {
       }
 
     return OfflineRecognizerConfig(featConfig = featConfig, modelConfig = modelConfig)
+  }
+
+  /**
+   * Builds the recognizer config for a multilingual Whisper model (base/small). The encoder is the
+   * model's primary download file; [decoderFile] and [tokensFile] are its extra data files. The
+   * spoken language comes from the user's config (defaults to Korean; "auto" → Whisper detects).
+   */
+  private fun buildWhisperConfig(
+    context: Context,
+    model: Model,
+    decoderFile: String,
+    tokensFile: String,
+  ): OfflineModelConfig {
+    val encoder = model.getPath(context = context)
+    val decoder = model.getPath(context = context, fileName = decoderFile)
+    val tokens = model.getPath(context = context, fileName = tokensFile)
+    requireFilesExist(encoder, decoder, tokens)
+    val languageHint = model.getStringConfigValue(STT_CONFIG_KEY_LANGUAGE, defaultValue = "ko")
+    return OfflineModelConfig(
+      whisper =
+        OfflineWhisperModelConfig(
+          encoder = encoder,
+          decoder = decoder,
+          // An empty language enables Whisper's built-in language detection.
+          language = if (languageHint == "auto") "" else languageHint,
+          task = "transcribe",
+        ),
+      tokens = tokens,
+      numThreads = 2,
+      debug = false,
+      modelType = "whisper",
+    )
   }
 
   private fun requireFilesExist(vararg paths: String) {
