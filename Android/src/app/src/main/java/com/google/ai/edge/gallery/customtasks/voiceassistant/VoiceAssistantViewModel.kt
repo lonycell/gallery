@@ -44,6 +44,7 @@ import com.google.ai.edge.gallery.customtasks.speech.KoreanTtsLoadResult
 import com.google.ai.edge.gallery.customtasks.speech.MeloNeuralTts
 import com.google.ai.edge.gallery.customtasks.speech.MeloTtsLoadResult
 import com.google.ai.edge.gallery.customtasks.speech.NeuralSttLoadResult
+import com.google.ai.edge.gallery.customtasks.speech.WhisperNeuralStt
 import com.google.ai.edge.gallery.customtasks.speech.SPEECH_SAMPLE_RATE
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
@@ -121,6 +122,11 @@ enum class SttEngine {
   SYSTEM,
   /** The downloadable on-device neural recognizer (sherpa-onnx SenseVoice). */
   NEURAL,
+  /**
+   * The downloadable on-device Whisper recognizer (sherpa-onnx, multilingual `small`). Strong
+   * Korean accuracy, but a larger model and slower (autoregressive) decoding than SenseVoice.
+   */
+  WHISPER,
 }
 
 /** Detailed state of the downloadable neural speech recognizer (mirrors [NeuralVoiceState]). */
@@ -153,8 +159,10 @@ data class VoiceAssistantUiState(
   val meloVoice: NeuralVoiceState = NeuralVoiceState(),
   /** Which engine is used to recognize the user's speech. */
   val sttEngine: SttEngine = SttEngine.SYSTEM,
-  /** State of the downloadable neural speech recognizer (download → init → ready/error). */
+  /** Availability of the downloadable SenseVoice recognizer (download → ready/error). */
   val neuralStt: NeuralSttState = NeuralSttState(),
+  /** Availability of the downloadable Whisper recognizer (same lifecycle as [neuralStt]). */
+  val whisperStt: NeuralSttState = NeuralSttState(),
   /** Number of connected/enabled MCP tools currently available to the assistant. */
   val mcpToolCount: Int = 0,
   /** Number of selected skills currently available to the assistant. */
@@ -198,12 +206,17 @@ constructor(
   private var meloTts: OfflineTts? = null
   private val audioPlayer = AudioPlayer()
 
-  // Optional on-device neural speech recognizer (sherpa-onnx SenseVoice). When loaded and selected,
-  // it replaces the system SpeechRecognizer for input. Records raw PCM via [AudioRecorder].
+  // Optional on-device neural speech recognizer. A single recognizer is kept in memory at a time
+  // (SenseVoice OR Whisper, whichever the user selected) to bound memory use; it is loaded lazily on
+  // selection and released when switching away. Records raw PCM via [AudioRecorder].
   private var neuralStt: OfflineRecognizer? = null
   private val audioRecorder = AudioRecorder(sampleRate = SPEECH_SAMPLE_RATE)
+  // The downloadable models backing the two neural engines (fed by the screen), and which engine's
+  // recognizer is currently loaded into [neuralStt].
   private var sttModel: Model? = null
-  private var preparingStt = false
+  private var whisperSttModel: Model? = null
+  private var loadedSttEngine: SttEngine? = null
+  private var loadingStt = false
 
   // Tool / MCP integration (shared with Agent Skills). Set by the screen via [attachAgentTools].
   private var agentTools: AgentTools? = null
@@ -367,8 +380,10 @@ constructor(
     // Stop any ongoing speech so the assistant doesn't hear itself.
     stopSpeaking()
 
-    // Use the neural recognizer only when it's selected AND ready; otherwise system recognizer.
-    if (_uiState.value.sttEngine == SttEngine.NEURAL && neuralStt != null) {
+    // Use the neural recognizer only when a neural engine is selected AND its recognizer is loaded;
+    // otherwise fall back to the system recognizer.
+    val engine = _uiState.value.sttEngine
+    if (engine != SttEngine.SYSTEM && neuralStt != null && loadedSttEngine == engine) {
       startNeuralListening()
       return
     }
@@ -727,19 +742,33 @@ constructor(
 
   // endregion
 
-  // region Neural STT (optional, downloadable) — mirrors the neural TTS pipeline.
+  // region Neural STT (optional, downloadable)
+  //
+  // Two neural recognizers are offered — SenseVoice and Whisper (small, multilingual). Each is an
+  // independent download whose *availability* is tracked separately (uiState.neuralStt /
+  // uiState.whisperStt). To bound memory, only ONE recognizer is held in [neuralStt] at a time: it
+  // is loaded lazily when the user selects that engine and released when switching away.
 
-  /**
-   * Feeds the latest download state of the neural recognizer (SenseVoice) from the screen and drives
-   * its preparation (download → init → ready), exposed via [uiState] like the neural voice.
-   */
+  /** Feeds the latest download state of the SenseVoice recognizer from the screen. */
   fun onNeuralSttStatus(model: Model?, downloadStatus: ModelDownloadStatus?) {
     sttModel = model
+    updateSttAvailability(SttEngine.NEURAL, model, downloadStatus)
+  }
+
+  /** Feeds the latest download state of the Whisper recognizer from the screen. */
+  fun onWhisperSttStatus(model: Model?, downloadStatus: ModelDownloadStatus?) {
+    whisperSttModel = model
+    updateSttAvailability(SttEngine.WHISPER, model, downloadStatus)
+  }
+
+  /** Maps a model's download status to the per-engine availability state (no engine is loaded here). */
+  private fun updateSttAvailability(
+    engine: SttEngine,
+    model: Model?,
+    downloadStatus: ModelDownloadStatus?,
+  ) {
     if (model == null) {
-      updateSttStage(NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
-      return
-    }
-    if (neuralStt != null) {
+      setSttEngineState(engine, NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
       return
     }
     when (downloadStatus?.status) {
@@ -749,64 +778,124 @@ constructor(
         val total = downloadStatus.totalBytes
         val received = downloadStatus.receivedBytes
         val pct = if (total > 0L) (received * 100 / total).toInt() else -1
-        updateSttStage(
+        setSttEngineState(
+          engine,
           NeuralSttState(
             stage = NeuralVoiceStage.DOWNLOADING,
             downloadPercent = pct,
             bytesPerSecond = downloadStatus.bytesPerSecond,
             remainingMs = downloadStatus.remainingMs,
-          )
+          ),
         )
       }
-      ModelDownloadStatusType.SUCCEEDED -> prepareNeuralStt(model)
+      ModelDownloadStatusType.SUCCEEDED -> {
+        setSttEngineState(engine, NeuralSttState(stage = NeuralVoiceStage.READY))
+        // If the user already selected this engine while it was still downloading, load it now.
+        if (_uiState.value.sttEngine == engine) {
+          ensureActiveRecognizer(engine)
+        }
+      }
       ModelDownloadStatusType.FAILED ->
-        updateSttStage(
+        setSttEngineState(
+          engine,
           NeuralSttState(
             stage = NeuralVoiceStage.ERROR,
             error = downloadStatus.errorMessage.ifEmpty { "다운로드에 실패했습니다." },
-          )
+          ),
         )
       else ->
-        if (!preparingStt && _uiState.value.neuralStt.stage != NeuralVoiceStage.PREPARING) {
-          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
+        // Don't clobber an already-available engine (e.g. files present from a previous session).
+        if (sttEngineState(engine).stage != NeuralVoiceStage.READY) {
+          setSttEngineState(engine, NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
         }
     }
   }
 
-  private fun prepareNeuralStt(model: Model) {
-    if (preparingStt || neuralStt != null) {
+  /**
+   * Ensures [neuralStt] holds the recognizer for [engine] (loading it and releasing any other), or
+   * does nothing for SYSTEM / when the model isn't downloaded yet. Loads off the main thread; on
+   * failure it surfaces an error on that engine and falls back to the system recognizer.
+   */
+  private fun ensureActiveRecognizer(engine: SttEngine) {
+    if (engine == SttEngine.SYSTEM) {
+      releaseActiveRecognizer()
       return
     }
-    preparingStt = true
-    updateSttStage(NeuralSttState(stage = NeuralVoiceStage.PREPARING))
+    if (loadedSttEngine == engine && neuralStt != null) {
+      return
+    }
+    if (loadingStt) {
+      return
+    }
+    val model =
+      when (engine) {
+        SttEngine.NEURAL -> sttModel
+        SttEngine.WHISPER -> whisperSttModel
+        else -> null
+      } ?: return // Not downloaded yet; the download banner handles fetching it.
+    loadingStt = true
     viewModelScope.launch {
+      releaseActiveRecognizer()
       val langHint = if (speechLocale.language == "ko") "ko" else "auto"
       val result =
         withContext(Dispatchers.IO) {
-          KoreanNeuralStt.load(context = context, model = model, languageHint = langHint)
+          when (engine) {
+            SttEngine.WHISPER ->
+              WhisperNeuralStt.load(
+                context = context,
+                model = model,
+                language = if (langHint == "auto") "" else langHint,
+              )
+            else -> KoreanNeuralStt.load(context = context, model = model, languageHint = langHint)
+          }
         }
       when (result) {
         is NeuralSttLoadResult.Success -> {
           neuralStt = result.recognizer
-          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.READY))
-          Log.d(TAG, "Neural STT ready.")
+          loadedSttEngine = engine
+          setSttEngineState(engine, NeuralSttState(stage = NeuralVoiceStage.READY))
+          Log.d(TAG, "Neural STT ready: $engine")
         }
-        is NeuralSttLoadResult.NotDownloaded ->
-          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
-        is NeuralSttLoadResult.Failure ->
-          updateSttStage(NeuralSttState(stage = NeuralVoiceStage.ERROR, error = result.message))
+        is NeuralSttLoadResult.NotDownloaded -> {
+          setSttEngineState(engine, NeuralSttState(stage = NeuralVoiceStage.NOT_INSTALLED))
+          fallBackToSystemIfSelected(engine)
+        }
+        is NeuralSttLoadResult.Failure -> {
+          setSttEngineState(engine, NeuralSttState(stage = NeuralVoiceStage.ERROR, error = result.message))
+          fallBackToSystemIfSelected(engine)
+        }
       }
-      preparingStt = false
+      loadingStt = false
     }
   }
 
-  /** Retries preparing the neural recognizer after a failure (reuses the downloaded files). */
-  fun retryNeuralSttPreparation() {
-    val model = sttModel ?: return
-    prepareNeuralStt(model)
+  private fun releaseActiveRecognizer() {
+    try {
+      neuralStt?.release()
+    } catch (e: Throwable) {
+      Log.w(TAG, "Failed to release neural recognizer", e)
+    }
+    neuralStt = null
+    loadedSttEngine = null
   }
 
-  /** Selects which engine recognizes the user's speech. Neural is only honored once it's READY. */
+  private fun fallBackToSystemIfSelected(engine: SttEngine) {
+    if (_uiState.value.sttEngine == engine) {
+      _uiState.update { it.copy(sttEngine = SttEngine.SYSTEM) }
+    }
+  }
+
+  /** Retries loading the SenseVoice recognizer after a failure (reuses the downloaded files). */
+  fun retryNeuralSttPreparation() {
+    ensureActiveRecognizer(SttEngine.NEURAL)
+  }
+
+  /** Retries loading the Whisper recognizer after a failure (reuses the downloaded files). */
+  fun retryWhisperSttPreparation() {
+    ensureActiveRecognizer(SttEngine.WHISPER)
+  }
+
+  /** Selects which engine recognizes the user's speech, loading/releasing recognizers as needed. */
   fun selectSttEngine(engine: SttEngine) {
     if (engine == _uiState.value.sttEngine) {
       return
@@ -816,11 +905,18 @@ constructor(
       stopListening()
     }
     _uiState.update { it.copy(sttEngine = engine) }
+    ensureActiveRecognizer(engine)
   }
 
-  private fun updateSttStage(state: NeuralSttState) {
-    _uiState.update { it.copy(neuralStt = state) }
+  private fun setSttEngineState(engine: SttEngine, state: NeuralSttState) {
+    when (engine) {
+      SttEngine.WHISPER -> _uiState.update { it.copy(whisperStt = state) }
+      else -> _uiState.update { it.copy(neuralStt = state) }
+    }
   }
+
+  private fun sttEngineState(engine: SttEngine): NeuralSttState =
+    if (engine == SttEngine.WHISPER) _uiState.value.whisperStt else _uiState.value.neuralStt
 
   // endregion
 

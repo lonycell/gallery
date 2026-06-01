@@ -91,6 +91,7 @@ import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.NEURAL_STT_MODEL_NAME
+import com.google.ai.edge.gallery.customtasks.speech.WHISPER_KO_STT_MODEL_NAME
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
@@ -184,6 +185,16 @@ fun VoiceAssistantScreen(
 
   LaunchedEffect(neuralSttModel, neuralSttStatus?.status, neuralSttStatus?.receivedBytes) {
     viewModel.onNeuralSttStatus(neuralSttModel, neuralSttStatus)
+  }
+
+  // The downloadable Whisper recognizer (small, multilingual; shared with the Speech to Text task)
+  // gives high-quality Korean recognition. Same download → ready pipeline as SenseVoice; only one
+  // neural recognizer is held in memory at a time (loaded on selection).
+  val whisperSttModel = remember { modelManagerViewModel.getModelByName(WHISPER_KO_STT_MODEL_NAME) }
+  val whisperSttStatus = whisperSttModel?.let { modelManagerUiState.modelDownloadStatus[it.name] }
+
+  LaunchedEffect(whisperSttModel, whisperSttStatus?.status, whisperSttStatus?.receivedBytes) {
+    viewModel.onWhisperSttStatus(whisperSttModel, whisperSttStatus)
   }
 
   val micPermissionLauncher =
@@ -322,22 +333,37 @@ fun VoiceAssistantScreen(
         )
       }
 
-      // STT engine picker (system vs neural) — only once the neural recognizer is ready.
-      if (uiState.neuralStt.stage == NeuralVoiceStage.READY) {
+      // STT engine picker — shown once at least one neural recognizer is available. Lists the
+      // system engine plus whichever neural recognizers have been downloaded.
+      val senseVoiceReady = uiState.neuralStt.stage == NeuralVoiceStage.READY
+      val whisperReady = uiState.whisperStt.stage == NeuralVoiceStage.READY
+      if (senseVoiceReady || whisperReady) {
         Spacer(modifier = Modifier.height(8.dp))
         SttEnginePickerRow(
           selected = uiState.sttEngine,
+          senseVoiceReady = senseVoiceReady,
+          whisperReady = whisperReady,
           onSelect = { viewModel.selectSttEngine(it) },
         )
       }
 
-      // Neural recognizer status: download → init → ready, with progress and error recovery.
-      if (neuralSttModel != null && uiState.neuralStt.stage != NeuralVoiceStage.READY) {
+      // SenseVoice recognizer status: download → ready, with progress and error recovery.
+      if (neuralSttModel != null && !senseVoiceReady) {
         Spacer(modifier = Modifier.height(10.dp))
         NeuralSttBanner(
           state = uiState.neuralStt,
           onDownload = { modelManagerViewModel.downloadModel(task = null, model = neuralSttModel) },
           onRetryPrepare = { viewModel.retryNeuralSttPreparation() },
+        )
+      }
+
+      // Whisper (Korean) recognizer status: same lifecycle.
+      if (whisperSttModel != null && !whisperReady) {
+        Spacer(modifier = Modifier.height(10.dp))
+        WhisperSttBanner(
+          state = uiState.whisperStt,
+          onDownload = { modelManagerViewModel.downloadModel(task = null, model = whisperSttModel) },
+          onRetryPrepare = { viewModel.retryWhisperSttPreparation() },
         )
       }
 
@@ -549,12 +575,20 @@ private fun VoicePickerRow(
   }
 }
 
-/** A two-option chip row for choosing the speech-recognition (input) engine. */
+/**
+ * A chip row for choosing the speech-recognition (input) engine. Always offers the system engine,
+ * and adds a chip for each downloaded neural recognizer (SenseVoice / Whisper).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SttEnginePickerRow(selected: SttEngine, onSelect: (SttEngine) -> Unit) {
+private fun SttEnginePickerRow(
+  selected: SttEngine,
+  senseVoiceReady: Boolean,
+  whisperReady: Boolean,
+  onSelect: (SttEngine) -> Unit,
+) {
   Row(
-    modifier = Modifier.fillMaxWidth(),
+    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
     horizontalArrangement = Arrangement.spacedBy(8.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -564,7 +598,12 @@ private fun SttEnginePickerRow(selected: SttEngine, onSelect: (SttEngine) -> Uni
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     SttEngineChip("시스템", selected == SttEngine.SYSTEM) { onSelect(SttEngine.SYSTEM) }
-    SttEngineChip("신경망", selected == SttEngine.NEURAL) { onSelect(SttEngine.NEURAL) }
+    if (senseVoiceReady) {
+      SttEngineChip("SenseVoice", selected == SttEngine.NEURAL) { onSelect(SttEngine.NEURAL) }
+    }
+    if (whisperReady) {
+      SttEngineChip("Whisper", selected == SttEngine.WHISPER) { onSelect(SttEngine.WHISPER) }
+    }
   }
 }
 
@@ -657,6 +696,88 @@ private fun NeuralSttBanner(
 private fun neuralSttSubtitle(state: NeuralSttState): String =
   when (state.stage) {
     NeuralVoiceStage.NOT_INSTALLED -> "인터넷 없이 기기에서 음성을 인식합니다 (약 239MB)."
+    NeuralVoiceStage.DOWNLOADING -> {
+      val pct = if (state.downloadPercent in 0..100) "${state.downloadPercent}%" else ""
+      val speed = if (state.bytesPerSecond > 0) " · ${formatSpeed(state.bytesPerSecond)}" else ""
+      val eta = if (state.remainingMs > 0) " · ${formatEta(state.remainingMs)} 남음" else ""
+      "다운로드 중 $pct$speed$eta".trim()
+    }
+    NeuralVoiceStage.PREPARING -> "음성 인식 모델 초기화 중…"
+    NeuralVoiceStage.ERROR -> state.error.ifEmpty { "오류가 발생했습니다." }
+    NeuralVoiceStage.READY -> "사용 준비 완료"
+  }
+
+/** Download/preparation banner for the Whisper Korean recognizer (mirrors [NeuralSttBanner]). */
+@Composable
+private fun WhisperSttBanner(
+  state: NeuralSttState,
+  onDownload: () -> Unit,
+  onRetryPrepare: () -> Unit,
+) {
+  Surface(
+    shape = RoundedCornerShape(14.dp),
+    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+    modifier = Modifier.fillMaxWidth(),
+  ) {
+    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = Icons.Filled.AutoAwesome,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Whisper 한국어 음성 인식",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+          )
+          Text(
+            text = whisperSttSubtitle(state),
+            style = MaterialTheme.typography.bodySmall,
+            color =
+              if (state.stage == NeuralVoiceStage.ERROR) MaterialTheme.colorScheme.error
+              else MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        when (state.stage) {
+          NeuralVoiceStage.NOT_INSTALLED -> Button(onClick = onDownload) { Text("받기") }
+          NeuralVoiceStage.DOWNLOADING,
+          NeuralVoiceStage.PREPARING ->
+            CircularProgressIndicator(
+              modifier = Modifier.size(22.dp),
+              strokeWidth = 2.dp,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          NeuralVoiceStage.ERROR -> Button(onClick = onRetryPrepare) { Text("재시도") }
+          NeuralVoiceStage.READY -> {}
+        }
+      }
+      if (state.stage == NeuralVoiceStage.DOWNLOADING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        if (state.downloadPercent in 0..100) {
+          LinearProgressIndicator(
+            progress = { state.downloadPercent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+      } else if (state.stage == NeuralVoiceStage.PREPARING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+      }
+    }
+  }
+}
+
+private fun whisperSttSubtitle(state: NeuralSttState): String =
+  when (state.stage) {
+    NeuralVoiceStage.NOT_INSTALLED -> "더 정확한 한국어 인식을 위한 Whisper 모델 (약 374MB)."
     NeuralVoiceStage.DOWNLOADING -> {
       val pct = if (state.downloadPercent in 0..100) "${state.downloadPercent}%" else ""
       val speed = if (state.bytesPerSecond > 0) " · ${formatSpeed(state.bytesPerSecond)}" else ""
