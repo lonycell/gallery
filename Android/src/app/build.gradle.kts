@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import java.net.URI
+
 plugins {
   alias(libs.plugins.android.application)
   // Note: set apply to true to enable google-services (requires google-services.json).
@@ -48,7 +50,7 @@ if (!sherpaOnnxAar.exists()) {
   logger.lifecycle("Downloading sherpa-onnx AAR ($sherpaOnnxVersion) from $sherpaOnnxUrl ...")
   sherpaOnnxAar.parentFile.mkdirs()
   try {
-    java.net.URI(sherpaOnnxUrl).toURL().openStream().use { input ->
+    URI(sherpaOnnxUrl).toURL().openStream().use { input ->
       sherpaOnnxAar.outputStream().use { output -> input.copyTo(output) }
     }
   } catch (e: Exception) {
