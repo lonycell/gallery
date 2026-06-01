@@ -89,6 +89,7 @@ import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDia
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
+import com.google.ai.edge.gallery.customtasks.speech.MELO_TTS_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.speech.NEURAL_STT_MODEL_NAME
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -165,6 +166,15 @@ fun VoiceAssistantScreen(
 
   LaunchedEffect(koreanTtsModel, koreanTtsStatus?.status, koreanTtsStatus?.receivedBytes) {
     viewModel.onKoreanTtsStatus(koreanTtsModel, koreanTtsStatus)
+  }
+
+  // The downloadable MeloTTS Korean voice (also shared with the Text to Speech task) offers a very
+  // natural Korean voice. Same download → unpack/init → ready pipeline as the KSS voice above.
+  val meloTtsModel = remember { modelManagerViewModel.getModelByName(MELO_TTS_MODEL_NAME) }
+  val meloTtsStatus = meloTtsModel?.let { modelManagerUiState.modelDownloadStatus[it.name] }
+
+  LaunchedEffect(meloTtsModel, meloTtsStatus?.status, meloTtsStatus?.receivedBytes) {
+    viewModel.onMeloTtsStatus(meloTtsModel, meloTtsStatus)
   }
 
   // The downloadable neural recognizer (SenseVoice, shared with the Speech to Text task) enables
@@ -274,6 +284,22 @@ fun VoiceAssistantScreen(
           state = uiState.neuralVoice,
           onDownload = { modelManagerViewModel.downloadModel(task = null, model = koreanTtsModel) },
           onRetryPrepare = { viewModel.retryNeuralPreparation() },
+        )
+      }
+
+      // MeloTTS Korean voice status (same lifecycle). Only shown once the model is actually
+      // downloadable — the Korean MeloTTS archive URL is a TODO (see TtsTask), so until it is set
+      // the model has an empty URL and we hide the banner to avoid a dead "받기" button.
+      if (
+        meloTtsModel != null &&
+          meloTtsModel.url.isNotEmpty() &&
+          uiState.meloVoice.stage != NeuralVoiceStage.READY
+      ) {
+        Spacer(modifier = Modifier.height(10.dp))
+        MeloVoiceBanner(
+          state = uiState.meloVoice,
+          onDownload = { modelManagerViewModel.downloadModel(task = null, model = meloTtsModel) },
+          onRetryPrepare = { viewModel.retryMeloPreparation() },
         )
       }
 
@@ -791,6 +817,103 @@ private fun KoreanVoiceBanner(
     }
   }
 }
+
+/**
+ * Download/preparation banner for the MeloTTS Korean voice. Mirrors [KoreanVoiceBanner] but with
+ * MeloTTS-specific copy. Hidden by the caller once the voice is READY.
+ */
+@Composable
+private fun MeloVoiceBanner(
+  state: NeuralVoiceState,
+  onDownload: () -> Unit,
+  onRetryPrepare: () -> Unit,
+) {
+  Surface(
+    shape = RoundedCornerShape(14.dp),
+    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+    modifier = Modifier.fillMaxWidth(),
+  ) {
+    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = Icons.Filled.AutoAwesome,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "MeloTTS 한국어 음성",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+          )
+          Text(
+            text = meloVoiceSubtitle(state),
+            style = MaterialTheme.typography.bodySmall,
+            color =
+              if (state.stage == NeuralVoiceStage.ERROR) MaterialTheme.colorScheme.error
+              else MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        when (state.stage) {
+          NeuralVoiceStage.NOT_INSTALLED -> Button(onClick = onDownload) { Text("받기") }
+          NeuralVoiceStage.DOWNLOADING,
+          NeuralVoiceStage.PREPARING ->
+            CircularProgressIndicator(
+              modifier = Modifier.size(22.dp),
+              strokeWidth = 2.dp,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          NeuralVoiceStage.ERROR -> Button(onClick = onRetryPrepare) { Text("재시도") }
+          NeuralVoiceStage.READY -> {}
+        }
+      }
+
+      if (state.stage == NeuralVoiceStage.DOWNLOADING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        if (state.downloadPercent in 0..100) {
+          LinearProgressIndicator(
+            progress = { state.downloadPercent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+      } else if (state.stage == NeuralVoiceStage.PREPARING) {
+        Spacer(modifier = Modifier.height(8.dp))
+        if (state.unpackPercent in 0..100) {
+          LinearProgressIndicator(
+            progress = { state.unpackPercent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+      }
+    }
+  }
+}
+
+/** Builds the subtitle describing the current MeloTTS voice stage. */
+private fun meloVoiceSubtitle(state: NeuralVoiceState): String =
+  when (state.stage) {
+    NeuralVoiceStage.NOT_INSTALLED -> "MeloTTS의 자연스러운 한국어 음성을 받아보세요."
+    NeuralVoiceStage.DOWNLOADING -> {
+      val pct = if (state.downloadPercent in 0..100) "${state.downloadPercent}%" else ""
+      val speed = if (state.bytesPerSecond > 0) " · ${formatSpeed(state.bytesPerSecond)}" else ""
+      val eta = if (state.remainingMs > 0) " · ${formatEta(state.remainingMs)} 남음" else ""
+      "다운로드 중 $pct$speed$eta".trim()
+    }
+    NeuralVoiceStage.PREPARING -> {
+      if (state.unpackPercent in 0..100) "압축 해제 중… ${state.unpackPercent}%"
+      else "음성 데이터 준비 중… (압축 해제 및 초기화)"
+    }
+    NeuralVoiceStage.ERROR -> state.error.ifEmpty { "오류가 발생했습니다." }
+    NeuralVoiceStage.READY -> "사용 준비 완료"
+  }
 
 /** Builds the human-readable subtitle describing the current neural-voice stage. */
 private fun neuralVoiceSubtitle(state: NeuralVoiceState): String =
