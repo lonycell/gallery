@@ -30,6 +30,26 @@
   <string name="app_name">찐친 Ai</string>
   <string name="app_name_first_part">찐친</string>
   <string name="app_name_second_part">Ai</string>
+  <!-- Main paywall screen (MainPage). Default build language is Korean. -->
+  <string name="paywall_pro_badge" translatable="false">Pro</string>
+  <string name="paywall_title">Enjoy The Best Chat Experience</string>
+  <string name="paywall_feature_1">NSFW 필터와 모든 AI 캐릭터의 잠금을 해제하세요.</string>
+  <string name="paywall_feature_2">무제한적인 개인적인 로맨틱한 대화</string>
+  <string name="paywall_feature_3">더 똑똑해진 모델과 더 긴 메모리</string>
+  <string name="paywall_feature_4">무제한 개인 AI 친구 맞춤 제작</string>
+  <string name="paywall_feature_5" formatted="false">더 많은 인기 콘텐츠를 점점 해제하고 50% 이상의 할인을 즐기세요</string>
+  <string name="paywall_feature_6">광고 제거</string>
+  <string name="paywall_feature_7">지금 가입하면 선물 600 코인을 드립니다.</string>
+  <string name="paywall_plan_weekly">Weekly</string>
+  <string name="paywall_plan_monthly">Monthly</string>
+  <string name="paywall_plan_yearly">Yearly</string>
+  <string name="paywall_badge_best_value">BEST VALUE</string>
+  <string name="paywall_badge_most_popular">MOST POPULAR</string>
+  <string name="paywall_price_weekly" translatable="false">₩1,000</string>
+  <string name="paywall_price_monthly" translatable="false">₩24,000</string>
+  <string name="paywall_price_yearly" translatable="false">₩48,000</string>
+  <string name="paywall_cta">결제 %1$s 지금</string>
+  <string name="paywall_close">닫기</string>
   <string name="askimage_emptystate_title" translatable="false">Ask Image</string>
   <string name="askimage_emptystate_content" translatable="false">To get started, tap the + below to add an image (max 10 images per chat) and type a prompt to ask a question about it!</string>
   <string name="askimage_emptystate_content_aicore" translatable="false">To get started, tap the + below to add an image (max 1 image per chat) and type a prompt to ask a question about it!</string>

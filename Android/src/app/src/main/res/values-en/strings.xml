@@ -22,4 +22,21 @@
   <string name="app_name">BeF Ai</string>
   <string name="app_name_first_part">BeF</string>
   <string name="app_name_second_part">Ai</string>
+
+  <!-- Main paywall screen (MainPage). -->
+  <string name="paywall_title">Enjoy The Best Chat Experience</string>
+  <string name="paywall_feature_1">Unlock the NSFW filter and every AI character.</string>
+  <string name="paywall_feature_2">Unlimited private, romantic conversations</string>
+  <string name="paywall_feature_3">A smarter model with longer memory</string>
+  <string name="paywall_feature_4">Create unlimited custom AI friends</string>
+  <string name="paywall_feature_5" formatted="false">Unlock more popular content and enjoy 50%+ discounts</string>
+  <string name="paywall_feature_6">Remove ads</string>
+  <string name="paywall_feature_7">Sign up now and get 600 bonus coins.</string>
+  <string name="paywall_plan_weekly">Weekly</string>
+  <string name="paywall_plan_monthly">Monthly</string>
+  <string name="paywall_plan_yearly">Yearly</string>
+  <string name="paywall_badge_best_value">BEST VALUE</string>
+  <string name="paywall_badge_most_popular">MOST POPULAR</string>
+  <string name="paywall_cta">Subscribe %1$s now</string>
+  <string name="paywall_close">Close</string>
 </resources>
