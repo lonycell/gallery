@@ -27,8 +27,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.google.ai.edge.gallery.R
 
 /**
  * A simple landing page shown as the app's start destination, replacing the home screen as the
@@ -46,7 +48,7 @@ fun MainPage(onGetStarted: () -> Unit, modifier: Modifier = Modifier) {
       verticalArrangement = Arrangement.Center,
     ) {
       Text(
-        text = "AI Edge Gallery",
+        text = stringResource(R.string.app_name),
         style = MaterialTheme.typography.headlineLarge,
         textAlign = TextAlign.Center,
       )
