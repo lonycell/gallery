@@ -83,6 +83,7 @@ import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.common.chat.ModelDownloadStatusInfoPanel
 import com.google.ai.edge.gallery.ui.home.HomeScreen
 import com.google.ai.edge.gallery.ui.home.PromoScreenGm4
+import com.google.ai.edge.gallery.ui.mainpage.MainPage
 import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
@@ -93,6 +94,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGGalleryNavGraph"
+private const val ROUTE_MAINPAGE = "mainpage"
 private const val ROUTE_HOMESCREEN = "homepage"
 private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
@@ -186,12 +188,35 @@ fun GalleryNavHost(
 
   NavHost(
     navController = navController,
-    startDestination = ROUTE_HOMESCREEN,
+    startDestination = ROUTE_MAINPAGE,
     enterTransition = { EnterTransition.None },
     exitTransition = { ExitTransition.None },
   ) {
+    // Main landing page. Shown first, replacing the home screen as the start destination.
+    composable(
+      route = ROUTE_MAINPAGE,
+      exitTransition = {
+        if (targetState.destination.route == ROUTE_HOMESCREEN) {
+          slideExit()
+        } else {
+          ExitTransition.None
+        }
+      },
+    ) {
+      MainPage(onGetStarted = { navController.navigate(ROUTE_HOMESCREEN) })
+    }
+
     // Home screen.
-    composable(route = ROUTE_HOMESCREEN) {
+    composable(
+      route = ROUTE_HOMESCREEN,
+      enterTransition = {
+        if (initialState.destination.route == ROUTE_MAINPAGE) {
+          slideEnter()
+        } else {
+          EnterTransition.None
+        }
+      },
+    ) {
       // Create a state to trigger PromoScreen fade in animation.
       val promoId = "gm4"
       Box(modifier = modifier.fillMaxSize()) {
