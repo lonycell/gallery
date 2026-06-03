@@ -31,6 +31,7 @@ import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.tool
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +63,8 @@ const val VOICE_ASSISTANT_TASK_ID = "speech_voice_assistant"
 class VoiceAssistantTask(
   private val promptSource: VoiceAssistantPromptSource,
   private val entryParams: VoiceAssistantEntryParams,
+  private val characterRepository: com.google.ai.edge.gallery.character.CharacterRepository,
+  private val chatHistoryStore: ChatHistoryStore,
 ) : CustomTask {
 
   // Shared tool/skill/MCP surface (same implementation Agent Skills uses). Its lateinit view models
@@ -164,13 +167,37 @@ class VoiceAssistantTask(
         toolSets.add(tool(agentTools))
       }
 
+      // Restore this character's prior conversation into the LLM context so it "remembers" the chat
+      // (the screen restores the on-screen messages from the same store). Newest messages last.
+      val history =
+        chatHistoryStore.load(characterRepository.selectedCharacter().id).mapNotNull { message ->
+          when (message.role) {
+            ChatMessage.Role.USER -> Message.user(message.text)
+            ChatMessage.Role.ASSISTANT -> Message.model(message.text)
+          }
+        }
+
       LlmChatModelHelper.initialize(
         context = context,
         model = model,
         taskId = task.id,
         supportImage = false,
         supportAudio = false,
-        onDone = onDone,
+        onDone = { error ->
+          // Once the engine is up, re-create the conversation seeded with the prior messages.
+          if (error.isEmpty() && history.isNotEmpty()) {
+            LlmChatModelHelper.resetConversation(
+              model = model,
+              supportImage = false,
+              supportAudio = false,
+              systemInstruction = instruction,
+              tools = toolSets,
+              enableConversationConstrainedDecoding = true,
+              initialMessages = history,
+            )
+          }
+          onDone(error)
+        },
         systemInstruction = instruction,
         tools = toolSets,
         enableConversationConstrainedDecoding = true,

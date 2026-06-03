@@ -198,6 +198,7 @@ constructor(
   @ApplicationContext private val context: Context,
   private val promptSource: VoiceAssistantPromptSource,
   private val entryParams: VoiceAssistantEntryParams,
+  private val chatHistoryStore: ChatHistoryStore,
 ) : ViewModel(), RecognitionListener {
 
   private val _uiState = MutableStateFlow(VoiceAssistantUiState())
@@ -612,20 +613,48 @@ constructor(
     stopSpeaking()
     // Persist the conversation we're leaving (finalize any in-progress streaming message).
     if (activeConversationId.isNotEmpty()) {
-      messagesByConversation[activeConversationId] =
+      val finalized =
         _uiState.value.messages.map { if (it.isStreaming) it.copy(isStreaming = false) else it }
+      messagesByConversation[activeConversationId] = finalized
+      persist(activeConversationId, finalized)
     }
     activeConversationId = conversationId
-    val restored = messagesByConversation[conversationId] ?: emptyList()
-    _uiState.update {
-      it.copy(messages = restored, isThinking = false, partialTranscript = "", error = "")
+    val cached = messagesByConversation[conversationId]
+    if (cached != null) {
+      _uiState.update {
+        it.copy(messages = cached, isThinking = false, partialTranscript = "", error = "")
+      }
+    } else {
+      // Show empty immediately, then load this character's saved history from disk.
+      _uiState.update {
+        it.copy(messages = emptyList(), isThinking = false, partialTranscript = "", error = "")
+      }
+      viewModelScope.launch {
+        val loaded = withContext(Dispatchers.IO) { chatHistoryStore.load(conversationId) }
+        messagesByConversation[conversationId] = loaded
+        if (activeConversationId == conversationId && loaded.isNotEmpty()) {
+          _uiState.update { it.copy(messages = loaded) }
+        }
+      }
     }
   }
 
-  /** Mirrors the live messages back into the active conversation's stored history. */
+  /** Mirrors the live messages back into the active conversation's in-memory history. */
   private fun syncActiveMessages() {
     if (activeConversationId.isNotEmpty()) {
       messagesByConversation[activeConversationId] = _uiState.value.messages
+    }
+  }
+
+  /** Persists [messages] for [conversationId] to disk off the main thread. */
+  private fun persist(conversationId: String, messages: List<ChatMessage>) {
+    viewModelScope.launch(Dispatchers.IO) { chatHistoryStore.save(conversationId, messages) }
+  }
+
+  /** Persists the active conversation's current messages to disk. */
+  private fun persistActive() {
+    if (activeConversationId.isNotEmpty()) {
+      persist(activeConversationId, _uiState.value.messages)
     }
   }
 
@@ -1161,6 +1190,8 @@ constructor(
               } else if (full.isNotEmpty()) {
                 speak(full)
               }
+              // Persist the completed turn so it survives character switches and app restarts.
+              persistActive()
             }
           }
         },
@@ -1389,6 +1420,15 @@ constructor(
 
   override fun onCleared() {
     super.onCleared()
+    // Best-effort final save of the active conversation (viewModelScope is cancelled here, so save
+    // synchronously).
+    if (activeConversationId.isNotEmpty()) {
+      try {
+        chatHistoryStore.save(activeConversationId, _uiState.value.messages)
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to persist chat history on clear", e)
+      }
+    }
     // onCleared is invoked on the main thread, so it's safe to tear down these engines directly.
     try {
       speechRecognizer?.destroy()

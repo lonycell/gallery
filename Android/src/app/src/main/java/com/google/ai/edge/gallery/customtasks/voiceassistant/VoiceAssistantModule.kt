@@ -50,7 +50,14 @@ internal object VoiceAssistantModule {
   fun provideTask(
     promptSource: VoiceAssistantPromptSource,
     entryParams: VoiceAssistantEntryParams,
+    characterRepository: com.google.ai.edge.gallery.character.CharacterRepository,
+    chatHistoryStore: ChatHistoryStore,
   ): CustomTask {
-    return VoiceAssistantTask(promptSource = promptSource, entryParams = entryParams)
+    return VoiceAssistantTask(
+      promptSource = promptSource,
+      entryParams = entryParams,
+      characterRepository = characterRepository,
+      chatHistoryStore = chatHistoryStore,
+    )
   }
 }
