@@ -88,7 +88,11 @@ private data class PlanOption(
  * [com.google.ai.edge.gallery.ui.navigation.GalleryNavHost].
  */
 @Composable
-fun SubscriptPage(onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun SubscriptPage(
+  onClose: () -> Unit,
+  onPurchase: () -> Unit = {},
+  modifier: Modifier = Modifier,
+) {
   val plans =
     listOf(
       PlanOption(R.string.paywall_plan_weekly, R.string.paywall_price_weekly, null, false),
@@ -237,7 +241,10 @@ fun SubscriptPage(onClose: () -> Unit, modifier: Modifier = Modifier) {
             .height(56.dp)
             .clip(RoundedCornerShape(28.dp))
             .background(Brush.horizontalGradient(listOf(AccentPurple, AccentPink)))
-            .clickable { onClose() },
+            .clickable {
+              onPurchase()
+              onClose()
+            },
         contentAlignment = Alignment.Center,
       ) {
         Text(

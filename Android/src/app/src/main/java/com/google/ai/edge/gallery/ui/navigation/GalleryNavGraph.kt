@@ -84,6 +84,8 @@ import com.google.ai.edge.gallery.ui.common.chat.ModelDownloadStatusInfoPanel
 import com.google.ai.edge.gallery.ui.home.HomeScreen
 import com.google.ai.edge.gallery.ui.home.PromoScreenGm4
 import androidx.navigation.compose.navigation
+import com.google.ai.edge.gallery.character.CharacterScreen
+import com.google.ai.edge.gallery.character.CharacterViewModel
 import com.google.ai.edge.gallery.ui.mainpage.MainPage
 import com.google.ai.edge.gallery.ui.mainpage.VoiceChatSettingsScreen
 import com.google.ai.edge.gallery.ui.subscription.SubscriptPage
@@ -100,6 +102,7 @@ private const val TAG = "AGGalleryNavGraph"
 private const val ROUTE_VOICE_GRAPH = "voice_graph"
 private const val ROUTE_MAINPAGE = "mainpage"
 private const val ROUTE_VOICE_SETTINGS = "voice_settings"
+private const val ROUTE_CHARACTERS = "characters"
 private const val ROUTE_SUBSCRIPTION = "subscription"
 private const val ROUTE_HOMESCREEN = "homepage"
 private const val ROUTE_MODEL_LIST = "model_list"
@@ -209,7 +212,9 @@ fun GalleryNavHost(
           viewModel = hiltViewModel(parentEntry),
           skillManagerViewModel = hiltViewModel(parentEntry),
           mcpManagerViewModel = hiltViewModel(parentEntry),
+          characterViewModel = hiltViewModel(parentEntry),
           onOpenSettings = { navController.navigate(ROUTE_VOICE_SETTINGS) },
+          onOpenCharacters = { navController.navigate(ROUTE_CHARACTERS) },
         )
       }
       composable(
@@ -229,13 +234,31 @@ fun GalleryNavHost(
       }
     }
 
+    // Character selection.
+    composable(
+      route = ROUTE_CHARACTERS,
+      enterTransition = { slideEnter() },
+      exitTransition = { slideExit() },
+    ) {
+      CharacterScreen(
+        viewModel = hiltViewModel(),
+        onStartChat = { navController.popBackStack(ROUTE_MAINPAGE, inclusive = false) },
+        onOpenSubscription = { navController.navigate(ROUTE_SUBSCRIPTION) },
+        navigateUp = { navController.navigateUp() },
+      )
+    }
+
     // Pro subscription paywall.
     composable(
       route = ROUTE_SUBSCRIPTION,
       enterTransition = { slideUpEnter() },
       exitTransition = { slideDownExit() },
     ) {
-      SubscriptPage(onClose = { navController.navigateUp() })
+      val characterViewModel: CharacterViewModel = hiltViewModel()
+      SubscriptPage(
+        onClose = { navController.navigateUp() },
+        onPurchase = { characterViewModel.subscribe() },
+      )
     }
 
     // Home screen.

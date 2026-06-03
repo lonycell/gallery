@@ -56,6 +56,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
@@ -87,6 +88,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.character.CharacterViewModel
 import com.google.ai.edge.gallery.common.PermissionResult
 import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDialog
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
@@ -124,12 +126,22 @@ fun MainPage(
   viewModel: VoiceAssistantViewModel,
   skillManagerViewModel: SkillManagerViewModel,
   mcpManagerViewModel: McpManagerViewModel,
+  characterViewModel: CharacterViewModel,
   onOpenSettings: () -> Unit,
+  onOpenCharacters: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
   val uiState by viewModel.uiState.collectAsState()
+
+  // The selected companion drives the background image, avatar and (via the prompt source) persona.
+  val charState by characterViewModel.state.collectAsState()
+  val selectedCharacter =
+    remember(charState.selectedId) {
+      characterViewModel.characterById(charState.selectedId)
+        ?: characterViewModel.characters.first()
+    }
 
   // Resolve the Voice Assistant task + its shared tool surface.
   val voiceTask = modelManagerViewModel.getTaskById(VOICE_ASSISTANT_TASK_ID)
@@ -137,10 +149,10 @@ fun MainPage(
     modelManagerViewModel.getCustomTaskByTaskId(VOICE_ASSISTANT_TASK_ID) as? VoiceAssistantTask
 
   if (voiceTask == null || voiceCustomTask == null) {
-    // Tasks not loaded yet — show the hero with a subtle scrim while we wait.
+    // Tasks not loaded yet — show the character hero with a subtle scrim while we wait.
     Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
       Image(
-        painter = painterResource(R.drawable.persona_hero),
+        painter = painterResource(selectedCharacter.imageRes),
         contentDescription = null,
         contentScale = ContentScale.Crop,
         alignment = Alignment.TopCenter,
@@ -180,13 +192,19 @@ fun MainPage(
       }
     }
 
-  // Select + initialize the chosen model while the chat is visible.
-  LaunchedEffect(targetModel?.name) {
+  // Select + initialize the chosen model while the chat is visible. Re-initialized (force) when the
+  // selected character changes so the new persona system prompt is applied.
+  LaunchedEffect(targetModel?.name, charState.selectedId) {
     val m = targetModel ?: return@LaunchedEffect
     if (selectedModel.name != m.name) {
       modelManagerViewModel.selectModel(m)
     }
-    modelManagerViewModel.initializeModel(context = context, task = voiceTask, model = m)
+    modelManagerViewModel.initializeModel(
+      context = context,
+      task = voiceTask,
+      model = m,
+      force = true,
+    )
   }
 
   // Reinitialize when the available skills/MCP tools change so function calling reflects them.
@@ -256,10 +274,10 @@ fun MainPage(
   }
 
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
-    // Hero persona.
+    // Hero: the selected character.
     Image(
-      painter = painterResource(R.drawable.persona_hero),
-      contentDescription = null,
+      painter = painterResource(selectedCharacter.imageRes),
+      contentDescription = selectedCharacter.name,
       contentScale = ContentScale.Crop,
       alignment = Alignment.TopCenter,
       modifier = Modifier.fillMaxSize(),
@@ -279,14 +297,14 @@ fun MainPage(
     )
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
-      // Top bar: brand + status, settings gear.
+      // Top bar: character name + status, character picker, settings gear.
       Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Column(modifier = Modifier.weight(1f)) {
           Text(
-            text = stringResource(R.string.app_name),
+            text = selectedCharacter.name,
             color = Color.White,
             fontWeight = FontWeight.Bold,
             fontSize = 20.sp,
@@ -297,6 +315,15 @@ fun MainPage(
             fontSize = 12.sp,
           )
         }
+        FrostedCircleButton(onClick = onOpenCharacters) {
+          Icon(
+            Icons.Rounded.People,
+            contentDescription = "캐릭터 선택",
+            tint = Color.White,
+            modifier = Modifier.size(22.dp),
+          )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
         FrostedCircleButton(onClick = onOpenSettings) {
           Icon(
             Icons.Rounded.Settings,
@@ -311,8 +338,8 @@ fun MainPage(
       Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
         when {
           !modelReady -> NotReadyHint(onOpenSettings = onOpenSettings)
-          uiState.messages.isEmpty() -> GreetingHint()
-          else -> Transcript(messages = uiState.messages)
+          uiState.messages.isEmpty() -> GreetingHint(characterName = selectedCharacter.name)
+          else -> Transcript(messages = uiState.messages, avatarRes = selectedCharacter.imageRes)
         }
       }
 
@@ -415,14 +442,14 @@ private fun NotReadyHint(onOpenSettings: () -> Unit) {
 }
 
 @Composable
-private fun GreetingHint() {
+private fun GreetingHint(characterName: String) {
   Column(
     modifier = Modifier.fillMaxSize().padding(horizontal = 36.dp, vertical = 24.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.Bottom,
   ) {
     Text(
-      text = "안녕! 편하게 말 걸어줘 😊",
+      text = "안녕! 나는 ${characterName}야. 편하게 말 걸어줘 😊",
       color = Color.White,
       fontWeight = FontWeight.SemiBold,
       fontSize = 16.sp,
@@ -439,7 +466,7 @@ private fun GreetingHint() {
 }
 
 @Composable
-private fun Transcript(messages: List<ChatMessage>) {
+private fun Transcript(messages: List<ChatMessage>, avatarRes: Int) {
   val listState = rememberLazyListState()
   // Keep the latest message in view as it streams in.
   LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
@@ -453,12 +480,12 @@ private fun Transcript(messages: List<ChatMessage>) {
     verticalArrangement = Arrangement.spacedBy(10.dp),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
   ) {
-    items(messages) { message -> VoiceChatBubble(message) }
+    items(messages) { message -> VoiceChatBubble(message, avatarRes) }
   }
 }
 
 @Composable
-private fun VoiceChatBubble(message: ChatMessage) {
+private fun VoiceChatBubble(message: ChatMessage, avatarRes: Int) {
   val isUser = message.role == ChatMessage.Role.USER
   val text = message.text.ifEmpty { if (message.isStreaming) "…" else "" }
   if (text.isEmpty()) return
@@ -470,7 +497,7 @@ private fun VoiceChatBubble(message: ChatMessage) {
   ) {
     if (!isUser) {
       Image(
-        painter = painterResource(R.drawable.persona_hero),
+        painter = painterResource(avatarRes),
         contentDescription = null,
         contentScale = ContentScale.Crop,
         modifier = Modifier.size(30.dp).clip(CircleShape),

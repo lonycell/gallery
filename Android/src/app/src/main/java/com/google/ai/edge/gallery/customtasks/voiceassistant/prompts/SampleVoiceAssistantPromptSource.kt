@@ -16,6 +16,7 @@
 
 package com.google.ai.edge.gallery.customtasks.voiceassistant.prompts
 
+import com.google.ai.edge.gallery.character.CharacterRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,9 +26,15 @@ import javax.inject.Singleton
  * This provides a small, curated set of topics so the feature works out of the box. It is designed
  * to be swapped out later for an implementation backed by a remote API or local storage — callers
  * depend only on the [VoiceAssistantPromptSource] interface.
+ *
+ * It also bridges the companion characters: when a character is selected (the default state of the
+ * app), [getPromptForTopic] returns that character's persona as the system prompt so the on-device
+ * LLM role-plays them. Curated topics remain available as a fallback.
  */
 @Singleton
-class SampleVoiceAssistantPromptSource @Inject constructor() : VoiceAssistantPromptSource {
+class SampleVoiceAssistantPromptSource
+@Inject
+constructor(private val characterRepository: CharacterRepository) : VoiceAssistantPromptSource {
 
   private val topics: List<TopicPrompt> =
     listOf(
@@ -112,6 +119,19 @@ class SampleVoiceAssistantPromptSource @Inject constructor() : VoiceAssistantPro
     )
 
   override suspend fun getPromptForTopic(topic: String?): TopicPrompt {
+    // The app is character-centric: role-play the currently selected companion character.
+    val character = characterRepository.selectedCharacter()
+    return TopicPrompt(
+      topicId = "character:${character.id}",
+      title = character.name,
+      systemPrompt = character.systemPrompt,
+      starters = character.starters,
+      bcp47Language = "ko-KR",
+    )
+  }
+
+  /** Resolves a curated topic (kept for callers that pass an explicit topic string). */
+  private fun resolveTopic(topic: String?): TopicPrompt {
     val query = topic?.trim()
     if (query.isNullOrEmpty()) {
       return generalTopic()
