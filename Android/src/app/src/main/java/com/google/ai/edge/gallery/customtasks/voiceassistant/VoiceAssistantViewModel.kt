@@ -203,6 +203,12 @@ constructor(
   private val _uiState = MutableStateFlow(VoiceAssistantUiState())
   val uiState = _uiState.asStateFlow()
 
+  // Chat history kept separately per conversation (one per character). The screen calls
+  // [setConversation] when the active character changes; the live [uiState].messages mirrors the
+  // active conversation, and every message mutation is written back to this map.
+  private val messagesByConversation = mutableMapOf<String, List<ChatMessage>>()
+  private var activeConversationId: String = ""
+
   private var topicPrompt: TopicPrompt? = null
   // The Voice Assistant defaults to Korean for both speech recognition and synthesis. A topic can
   // override this via its bcp47Language.
@@ -590,6 +596,37 @@ constructor(
   /** Sends a typed/tapped starter as if the user had spoken it. */
   fun sendStarter(text: String, model: Model) {
     submitUserInput(text, model)
+  }
+
+  /**
+   * Switches the active conversation (one per character). Saves the current conversation, stops any
+   * in-flight listening/speaking, and loads the target conversation's history (empty if new), so the
+   * chat never shows another character's messages.
+   */
+  fun setConversation(conversationId: String) {
+    if (conversationId == activeConversationId) {
+      return
+    }
+    // Don't let the previous character keep listening/talking after the switch.
+    stopListening()
+    stopSpeaking()
+    // Persist the conversation we're leaving (finalize any in-progress streaming message).
+    if (activeConversationId.isNotEmpty()) {
+      messagesByConversation[activeConversationId] =
+        _uiState.value.messages.map { if (it.isStreaming) it.copy(isStreaming = false) else it }
+    }
+    activeConversationId = conversationId
+    val restored = messagesByConversation[conversationId] ?: emptyList()
+    _uiState.update {
+      it.copy(messages = restored, isThinking = false, partialTranscript = "", error = "")
+    }
+  }
+
+  /** Mirrors the live messages back into the active conversation's stored history. */
+  private fun syncActiveMessages() {
+    if (activeConversationId.isNotEmpty()) {
+      messagesByConversation[activeConversationId] = _uiState.value.messages
+    }
   }
 
   private var pendingModel: Model? = null
@@ -1088,11 +1125,15 @@ constructor(
         error = "",
       )
     }
+    syncActiveMessages()
     runLlm(activeModel, text)
   }
 
   private fun runLlm(model: Model, input: String) {
     val builder = StringBuilder()
+    // The conversation this generation belongs to. If the user switches characters mid-generation,
+    // stale results must not leak into the new conversation.
+    val convId = activeConversationId
     // In STREAMING mode we speak each finished sentence as it arrives; in AFTER_COMPLETE we speak
     // the whole reply once generation finishes (the original behavior).
     val streamingSpeech = _uiState.value.speakMode == TtsSpeakMode.STREAMING
@@ -1104,20 +1145,22 @@ constructor(
         model = model,
         input = input,
         resultListener = { partialResult, done, _ ->
-          if (!partialResult.startsWith("<ctrl")) {
-            builder.append(partialResult)
-            updateStreamingAssistant(builder.toString(), streaming = !done)
-            if (streamingSpeech) {
-              enqueueReadySentences(builder.toString())
+          if (activeConversationId == convId) {
+            if (!partialResult.startsWith("<ctrl")) {
+              builder.append(partialResult)
+              updateStreamingAssistant(builder.toString(), streaming = !done)
+              if (streamingSpeech) {
+                enqueueReadySentences(builder.toString())
+              }
             }
-          }
-          if (done) {
-            val full = builder.toString().trim()
-            _uiState.update { it.copy(isThinking = false) }
-            if (streamingSpeech) {
-              finishStreamingSpeech(builder.toString())
-            } else if (full.isNotEmpty()) {
-              speak(full)
+            if (done) {
+              val full = builder.toString().trim()
+              _uiState.update { it.copy(isThinking = false) }
+              if (streamingSpeech) {
+                finishStreamingSpeech(builder.toString())
+              } else if (full.isNotEmpty()) {
+                speak(full)
+              }
             }
           }
         },
@@ -1127,10 +1170,12 @@ constructor(
           if (streamingSpeech) {
             cancelStreamingSpeech()
           }
-          _uiState.update {
-            it.copy(isThinking = false, error = message.ifEmpty { "문제가 발생했습니다." })
+          if (activeConversationId == convId) {
+            _uiState.update {
+              it.copy(isThinking = false, error = message.ifEmpty { "문제가 발생했습니다." })
+            }
+            updateStreamingAssistant(builder.toString(), streaming = false)
           }
-          updateStreamingAssistant(builder.toString(), streaming = false)
         },
         coroutineScope = viewModelScope,
       )
@@ -1154,6 +1199,7 @@ constructor(
       }
       state.copy(messages = messages)
     }
+    syncActiveMessages()
   }
 
   // region Text to speech (TTS)

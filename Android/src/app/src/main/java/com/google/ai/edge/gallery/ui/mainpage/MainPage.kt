@@ -245,6 +245,10 @@ private fun VoiceChatContent(
     }
   }
 
+  // Show this character's own conversation (per-character chat history); switching characters never
+  // leaves the previous character's messages on screen.
+  LaunchedEffect(charState.selectedId) { viewModel.setConversation(charState.selectedId) }
+
   // Apply the selected character's assigned TTS voice (engine + voice) to the shared engine, so the
   // chat speaks in that character's voice. Re-applied when voices become available (e.g. a neural
   // voice finishes downloading).
