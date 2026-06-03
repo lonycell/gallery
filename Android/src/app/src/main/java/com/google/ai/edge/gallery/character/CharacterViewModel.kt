@@ -48,6 +48,8 @@ class CharacterViewModel @Inject constructor(private val repository: CharacterRe
 
   fun voiceForCharacter(characterId: String): String = repository.voiceForCharacter(characterId)
 
+  fun setDefaultVoice(voiceId: String) = repository.setDefaultVoice(voiceId)
+
   fun characterById(id: String): Character? = Characters.byId(id)
 
   fun selectedCharacter(): Character = repository.selectedCharacter()

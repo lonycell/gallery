@@ -211,10 +211,11 @@ fun MainPage(
   // chat speaks in that character's voice. Re-applied when voices become available (e.g. a neural
   // voice finishes downloading).
   val assignedVoice = charState.voiceByCharacter[charState.selectedId] ?: ""
-  LaunchedEffect(charState.selectedId, assignedVoice, uiState.voices.size) {
-    // Use the character's chosen voice; if none is set, fall back to the default (first available,
-    // neural-preferred) so a character never inherits the previous character's voice.
-    val target = assignedVoice.ifEmpty { uiState.voices.firstOrNull()?.id ?: "" }
+  // Voice priority: the character's own voice → the global default voice → the first available voice
+  // (neural-preferred). This way a character without its own voice uses the global default.
+  val effectiveVoice = assignedVoice.ifEmpty { charState.defaultVoiceId }
+  LaunchedEffect(charState.selectedId, effectiveVoice, uiState.voices.size) {
+    val target = effectiveVoice.ifEmpty { uiState.voices.firstOrNull()?.id ?: "" }
     if (target.isNotEmpty()) {
       viewModel.selectVoice(target)
     }

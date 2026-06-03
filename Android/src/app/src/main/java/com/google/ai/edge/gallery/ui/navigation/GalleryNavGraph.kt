@@ -228,6 +228,7 @@ fun GalleryNavHost(
           viewModel = hiltViewModel(parentEntry),
           skillManagerViewModel = hiltViewModel(parentEntry),
           mcpManagerViewModel = hiltViewModel(parentEntry),
+          characterViewModel = hiltViewModel(parentEntry),
           onOpenSubscription = { navController.navigate(ROUTE_SUBSCRIPTION) },
           navigateUp = { navController.navigateUp() },
         )

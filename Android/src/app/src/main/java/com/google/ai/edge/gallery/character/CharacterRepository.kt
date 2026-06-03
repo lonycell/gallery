@@ -46,6 +46,8 @@ data class CharacterState(
   val isPro: Boolean = false,
   /** Per-character TTS voice id (e.g. "neural:kss", "neural:melo", "system:<name>"). */
   val voiceByCharacter: Map<String, String> = emptyMap(),
+  /** Global default TTS voice id, used for any character without its own assigned voice. */
+  val defaultVoiceId: String = "",
 )
 
 /**
@@ -75,6 +77,7 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       selectedId = prefs.getString(KEY_SELECTED, defaultSelected) ?: defaultSelected,
       isPro = prefs.getBoolean(KEY_PRO, false),
       voiceByCharacter = decodeVoices(prefs.getStringSet(KEY_VOICES, emptySet())),
+      defaultVoiceId = prefs.getString(KEY_DEFAULT_VOICE, "") ?: "",
     )
   }
 
@@ -86,6 +89,7 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       .putString(KEY_SELECTED, newState.selectedId)
       .putBoolean(KEY_PRO, newState.isPro)
       .putStringSet(KEY_VOICES, encodeVoices(newState.voiceByCharacter))
+      .putString(KEY_DEFAULT_VOICE, newState.defaultVoiceId)
       .apply()
     _state.value = newState
   }
@@ -111,6 +115,11 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
   /** The voice assigned to [characterId], or an empty string if none has been chosen. */
   fun voiceForCharacter(characterId: String): String =
     _state.value.voiceByCharacter[characterId] ?: ""
+
+  /** Sets the global default TTS voice used when a character has no voice of its own. */
+  fun setDefaultVoice(voiceId: String) {
+    persist(_state.value.copy(defaultVoiceId = voiceId))
+  }
 
   /** Whether [character] is available to use (free, already purchased, or unlocked by Pro). */
   fun isUnlocked(character: Character): Boolean {
@@ -165,5 +174,6 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
     const val KEY_SELECTED = "selected_id"
     const val KEY_PRO = "is_pro"
     const val KEY_VOICES = "voice_by_character"
+    const val KEY_DEFAULT_VOICE = "default_voice_id"
   }
 }

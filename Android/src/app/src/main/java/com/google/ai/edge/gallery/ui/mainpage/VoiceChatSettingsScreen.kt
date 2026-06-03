@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
+import com.google.ai.edge.gallery.character.CharacterViewModel
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
@@ -95,11 +96,13 @@ fun VoiceChatSettingsScreen(
   viewModel: VoiceAssistantViewModel,
   skillManagerViewModel: SkillManagerViewModel,
   mcpManagerViewModel: McpManagerViewModel,
+  characterViewModel: CharacterViewModel,
   onOpenSubscription: () -> Unit,
   navigateUp: () -> Unit,
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
   val uiState by viewModel.uiState.collectAsState()
+  val charState by characterViewModel.state.collectAsState()
 
   val voiceTask = modelManagerViewModel.getTaskById(VOICE_ASSISTANT_TASK_ID)
   val voiceCustomTask =
@@ -231,11 +234,27 @@ fun VoiceChatSettingsScreen(
       // --- TTS ---
       SettingsSection(title = "음성 합성 (TTS)", subtitle = "AI의 답변을 읽어주는 목소리") {
         Text(
-          "목소리는 캐릭터마다 따로 지정해요. 캐릭터 상세 화면에서 보이스를 선택하세요. " +
-            "여기서는 더 자연스러운 음성 모델을 내려받을 수 있어요.",
+          "기본 목소리예요. 캐릭터 상세에서 따로 지정하지 않은 캐릭터는 이 목소리로 말해요.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (uiState.voices.isNotEmpty()) {
+          Spacer(modifier = Modifier.height(8.dp))
+          Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            uiState.voices.forEach { voice ->
+              ChoiceChip(
+                label = voice.label,
+                selected = voice.id == charState.defaultVoiceId,
+                neural = voice.isNeural,
+              ) {
+                characterViewModel.setDefaultVoice(voice.id)
+              }
+            }
+          }
+        }
 
         if (uiState.ttsReady) {
           Spacer(modifier = Modifier.height(10.dp))
