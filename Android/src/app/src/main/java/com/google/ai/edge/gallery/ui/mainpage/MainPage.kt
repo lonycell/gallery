@@ -132,10 +132,6 @@ fun MainPage(
   onOpenCharacters: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val context = LocalContext.current
-  val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
-  val uiState by viewModel.uiState.collectAsState()
-
   // The selected companion drives the background image, avatar and (via the prompt source) persona.
   val charState by characterViewModel.state.collectAsState()
   val selectedCharacter =
@@ -162,6 +158,43 @@ fun MainPage(
     }
     return
   }
+
+  // Delegate to a child composable so every hook (activity-result launcher, effects) is registered
+  // consistently once the task is available — never conditionally after an early return, which broke
+  // the microphone permission launcher and led to a recording security error.
+  VoiceChatContent(
+    voiceTask = voiceTask,
+    voiceCustomTask = voiceCustomTask,
+    selectedCharacter = selectedCharacter,
+    modelManagerViewModel = modelManagerViewModel,
+    viewModel = viewModel,
+    skillManagerViewModel = skillManagerViewModel,
+    mcpManagerViewModel = mcpManagerViewModel,
+    characterViewModel = characterViewModel,
+    onOpenSettings = onOpenSettings,
+    onOpenCharacters = onOpenCharacters,
+    modifier = modifier,
+  )
+}
+
+@Composable
+private fun VoiceChatContent(
+  voiceTask: com.google.ai.edge.gallery.data.Task,
+  voiceCustomTask: VoiceAssistantTask,
+  selectedCharacter: com.google.ai.edge.gallery.character.Character,
+  modelManagerViewModel: com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel,
+  viewModel: VoiceAssistantViewModel,
+  skillManagerViewModel: SkillManagerViewModel,
+  mcpManagerViewModel: McpManagerViewModel,
+  characterViewModel: CharacterViewModel,
+  onOpenSettings: () -> Unit,
+  onOpenCharacters: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val context = LocalContext.current
+  val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
+  val uiState by viewModel.uiState.collectAsState()
+  val charState by characterViewModel.state.collectAsState()
 
   // Keep the shared ViewModel + engines wired regardless of which screen is visible.
   VoiceChatPlumbing(
