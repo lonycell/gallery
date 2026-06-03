@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -146,14 +147,14 @@ fun MainPage(
     modelManagerViewModel.getCustomTaskByTaskId(VOICE_ASSISTANT_TASK_ID) as? VoiceAssistantTask
 
   if (voiceTask == null || voiceCustomTask == null) {
-    // Tasks not loaded yet — show the character hero with a subtle scrim while we wait.
+    // Tasks not loaded yet — show the character hero (same framing as the chat) while we wait.
     Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
       Image(
         painter = painterResource(selectedCharacter.imageRes),
         contentDescription = null,
         contentScale = ContentScale.Crop,
         alignment = Alignment.TopCenter,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.62f).align(Alignment.TopCenter),
       )
     }
     return
@@ -329,24 +330,28 @@ private fun VoiceChatContent(
   }
 
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
-    // Hero: the selected character.
+    // Hero: the selected character, shown at a natural portrait ratio in the top portion of the
+    // screen (the source images are square, so filling the whole tall screen would zoom the face in
+    // too much). The lower part is the dark chat area, blended via the scrim below.
     Image(
       painter = painterResource(selectedCharacter.imageRes),
       contentDescription = selectedCharacter.name,
       contentScale = ContentScale.Crop,
       alignment = Alignment.TopCenter,
-      modifier = Modifier.fillMaxSize(),
+      modifier = Modifier.fillMaxWidth().fillMaxHeight(0.62f).align(Alignment.TopCenter),
     )
-    // Scrim: light at the top (show the face), heavy at the bottom (chat legibility).
+    // Scrim: light over the face, fading to the solid background by the image's bottom edge so there
+    // is no hard seam, and dark over the chat area for legibility.
     Box(
       modifier =
         Modifier.fillMaxSize()
           .background(
             Brush.verticalGradient(
-              0.0f to ScrimBase.copy(alpha = 0.10f),
-              0.34f to ScrimBase.copy(alpha = 0.18f),
-              0.60f to ScrimBase.copy(alpha = 0.62f),
-              1.0f to ScrimBase.copy(alpha = 0.97f),
+              0.0f to ScrimBase.copy(alpha = 0.05f),
+              0.34f to ScrimBase.copy(alpha = 0.12f),
+              0.55f to ScrimBase.copy(alpha = 0.55f),
+              0.70f to ScrimBase.copy(alpha = 0.96f),
+              1.0f to ScrimBase,
             )
           )
     )
