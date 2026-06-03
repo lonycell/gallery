@@ -38,7 +38,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -154,7 +153,7 @@ fun MainPage(
         contentDescription = null,
         contentScale = ContentScale.Crop,
         alignment = Alignment.TopCenter,
-        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.62f).align(Alignment.TopCenter),
+        modifier = Modifier.fillMaxSize(),
       )
     }
     return
@@ -345,27 +344,23 @@ private fun VoiceChatContent(
   }
 
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
-    // Hero: the selected character, shown at a natural portrait ratio in the top portion of the
-    // screen (the source images are square, so filling the whole tall screen would zoom the face in
-    // too much). The lower part is the dark chat area, blended via the scrim below.
+    // Hero: the selected character, full-bleed like the subscription page (portrait photos), with a
+    // gradient that's light over the face and fades smoothly into the dark chat area below.
     Image(
       painter = painterResource(selectedCharacter.imageRes),
       contentDescription = selectedCharacter.name,
       contentScale = ContentScale.Crop,
       alignment = Alignment.TopCenter,
-      modifier = Modifier.fillMaxWidth().fillMaxHeight(0.62f).align(Alignment.TopCenter),
+      modifier = Modifier.fillMaxSize(),
     )
-    // Scrim: light over the face, fading to the solid background by the image's bottom edge so there
-    // is no hard seam, and dark over the chat area for legibility.
     Box(
       modifier =
         Modifier.fillMaxSize()
           .background(
             Brush.verticalGradient(
-              0.0f to ScrimBase.copy(alpha = 0.05f),
-              0.34f to ScrimBase.copy(alpha = 0.12f),
-              0.55f to ScrimBase.copy(alpha = 0.55f),
-              0.70f to ScrimBase.copy(alpha = 0.96f),
+              0.0f to ScrimBase.copy(alpha = 0.20f),
+              0.42f to ScrimBase.copy(alpha = 0.60f),
+              0.70f to ScrimBase.copy(alpha = 0.95f),
               1.0f to ScrimBase,
             )
           )
