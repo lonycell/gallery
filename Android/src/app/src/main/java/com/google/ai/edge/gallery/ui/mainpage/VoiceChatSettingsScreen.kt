@@ -76,6 +76,7 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TAS
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
@@ -171,7 +172,7 @@ fun VoiceChatSettingsScreen(
             LlmModelRow(
               model = model,
               selected = modelManagerUiState.selectedModel.name == model.name,
-              status = modelManagerUiState.modelDownloadStatus[model.name]?.status,
+              downloadStatus = modelManagerUiState.modelDownloadStatus[model.name],
               onSelect = { modelManagerViewModel.selectModel(model) },
               onDownload = { modelManagerViewModel.downloadModel(task = voiceTask, model = model) },
             )
@@ -407,56 +408,78 @@ private fun ChoiceChip(
 private fun LlmModelRow(
   model: Model,
   selected: Boolean,
-  status: ModelDownloadStatusType?,
+  downloadStatus: ModelDownloadStatus?,
   onSelect: () -> Unit,
   onDownload: () -> Unit,
 ) {
-  val downloaded = status == ModelDownloadStatusType.SUCCEEDED
+  val statusType = downloadStatus?.status
+  val downloaded = statusType == ModelDownloadStatusType.SUCCEEDED
+  val unzipping = statusType == ModelDownloadStatusType.UNZIPPING
   val downloading =
-    status == ModelDownloadStatusType.IN_PROGRESS ||
-      status == ModelDownloadStatusType.PARTIALLY_DOWNLOADED ||
-      status == ModelDownloadStatusType.UNZIPPING
-  Row(
+    statusType == ModelDownloadStatusType.IN_PROGRESS ||
+      statusType == ModelDownloadStatusType.PARTIALLY_DOWNLOADED ||
+      unzipping
+  // Download progress (determinate when the total size is known).
+  val total = downloadStatus?.totalBytes ?: 0L
+  val received = downloadStatus?.receivedBytes ?: 0L
+  val percent = if (total > 0L) ((received * 100) / total).toInt().coerceIn(0, 100) else -1
+  val showDeterminate = downloading && !unzipping && percent in 0..100
+
+  Column(
     modifier =
       Modifier.fillMaxWidth()
         .let { if (downloaded) it.clickable { onSelect() } else it }
-        .padding(vertical = 8.dp),
-    verticalAlignment = Alignment.CenterVertically,
+        .padding(vertical = 8.dp)
   ) {
-    Column(modifier = Modifier.weight(1f)) {
-      Text(
-        text = model.displayName.ifEmpty { model.name },
-        style = MaterialTheme.typography.bodyMedium,
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        color = MaterialTheme.colorScheme.onSurface,
-      )
-      Text(
-        text =
-          when {
-            selected -> "사용 중"
-            downloaded -> "탭하여 선택"
-            downloading -> "다운로드 중…"
-            else -> "다운로드 필요"
-          },
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-    Spacer(modifier = Modifier.width(8.dp))
-    when {
-      selected ->
-        Icon(
-          Icons.Rounded.CheckCircle,
-          contentDescription = "선택됨",
-          tint = MaterialTheme.colorScheme.primary,
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = model.displayName.ifEmpty { model.name },
+          style = MaterialTheme.typography.bodyMedium,
+          fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+          color = MaterialTheme.colorScheme.onSurface,
         )
-      downloading ->
-        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-      downloaded -> {} // tap-to-select handled by the row
-      else ->
-        IconButton(onClick = onDownload) {
-          Icon(Icons.Rounded.Download, contentDescription = "받기")
-        }
+        Text(
+          text =
+            when {
+              selected -> "사용 중"
+              downloaded -> "탭하여 선택"
+              unzipping -> "압축 해제 중…"
+              downloading -> if (percent in 0..100) "다운로드 중 $percent%" else "다운로드 중…"
+              else -> "다운로드 필요"
+            },
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      Spacer(modifier = Modifier.width(8.dp))
+      when {
+        selected ->
+          Icon(
+            Icons.Rounded.CheckCircle,
+            contentDescription = "선택됨",
+            tint = MaterialTheme.colorScheme.primary,
+          )
+        downloading -> {} // progress bar is shown below the row
+        downloaded -> {} // tap-to-select handled by the row
+        else ->
+          IconButton(onClick = onDownload) {
+            Icon(Icons.Rounded.Download, contentDescription = "받기")
+          }
+      }
+    }
+
+    // Progress bar, mirroring the STT/TTS download rows.
+    if (downloading) {
+      Spacer(modifier = Modifier.height(8.dp))
+      if (showDeterminate) {
+        LinearProgressIndicator(
+          progress = { percent / 100f },
+          modifier = Modifier.fillMaxWidth(),
+        )
+      } else {
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+      }
     }
   }
 }
