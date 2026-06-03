@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -192,19 +193,23 @@ fun MainPage(
       }
     }
 
-  // Select + initialize the chosen model while the chat is visible. Re-initialized (force) when the
-  // selected character changes so the new persona system prompt is applied.
+  // Select + initialize the chosen model while the chat is visible. Re-initialized (force) only when
+  // the model or the selected character (persona) actually changed — so it doesn't needlessly
+  // reload (slow) on every return from settings when nothing relevant changed.
   LaunchedEffect(targetModel?.name, charState.selectedId) {
     val m = targetModel ?: return@LaunchedEffect
     if (selectedModel.name != m.name) {
       modelManagerViewModel.selectModel(m)
     }
-    modelManagerViewModel.initializeModel(
-      context = context,
-      task = voiceTask,
-      model = m,
-      force = true,
-    )
+    val signatureChanged = characterViewModel.needsModelInit("${m.name}|${charState.selectedId}")
+    if (signatureChanged || !modelManagerUiState.isModelInitialized(m)) {
+      modelManagerViewModel.initializeModel(
+        context = context,
+        task = voiceTask,
+        model = m,
+        force = true,
+      )
+    }
   }
 
   // Apply the selected character's assigned TTS voice (engine + voice) to the shared engine, so the
@@ -244,6 +249,9 @@ fun MainPage(
 
   val modelReady =
     selectedModel.name.isNotEmpty() && modelManagerUiState.isModelInitialized(selectedModel)
+  // A model has already been downloaded and is just being loaded/initialized (this can take a while
+  // for an LLM) — distinct from "no model downloaded yet, go to settings".
+  val modelDownloaded = targetModel != null
 
   // Pending MCP tool-call permission dialog (tools run during the chat).
   val mcpPermission by viewModel.mcpPermissionRequest.collectAsState()
@@ -324,7 +332,7 @@ fun MainPage(
             fontSize = 20.sp,
           )
           Text(
-            text = statusLabel(uiState, modelReady),
+            text = statusLabel(uiState, modelReady, modelDownloaded),
             color = Color.White.copy(alpha = 0.7f),
             fontSize = 12.sp,
           )
@@ -351,9 +359,12 @@ fun MainPage(
       // Conversation transcript.
       Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
         when {
-          !modelReady -> NotReadyHint(onOpenSettings = onOpenSettings)
-          uiState.messages.isEmpty() -> GreetingHint(characterName = selectedCharacter.name)
-          else -> Transcript(messages = uiState.messages, avatarRes = selectedCharacter.imageRes)
+          modelReady && uiState.messages.isEmpty() ->
+            GreetingHint(characterName = selectedCharacter.name)
+          modelReady -> Transcript(messages = uiState.messages, avatarRes = selectedCharacter.imageRes)
+          // Downloaded but still loading — don't nag the user to open settings.
+          modelDownloaded -> PreparingHint(characterName = selectedCharacter.name)
+          else -> NotReadyHint(onOpenSettings = onOpenSettings)
         }
       }
 
@@ -385,6 +396,7 @@ fun MainPage(
       // Input bar: text field + the merged mic-orb.
       InputBar(
         enabled = modelReady,
+        disabledPlaceholder = if (modelDownloaded) "잠시만요, 준비 중이에요…" else "설정에서 모델 받기",
         isListening = uiState.isListening,
         isThinking = uiState.isThinking,
         isSpeaking = uiState.isSpeaking,
@@ -398,8 +410,13 @@ fun MainPage(
   }
 }
 
-private fun statusLabel(state: VoiceAssistantUiState, modelReady: Boolean): String =
+private fun statusLabel(
+  state: VoiceAssistantUiState,
+  modelReady: Boolean,
+  modelDownloaded: Boolean,
+): String =
   when {
+    !modelReady && modelDownloaded -> "모델을 불러오는 중이에요…"
     !modelReady -> "설정에서 AI 모델을 준비해 주세요"
     state.isListening -> "듣고 있어요…"
     state.isThinking -> "생각 중…"
@@ -452,6 +469,32 @@ private fun NotReadyHint(onOpenSettings: () -> Unit) {
     ) {
       Text(text = "설정 열기", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
     }
+  }
+}
+
+@Composable
+private fun PreparingHint(characterName: String) {
+  Column(
+    modifier = Modifier.fillMaxSize().padding(horizontal = 36.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center,
+  ) {
+    CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp, modifier = Modifier.size(34.dp))
+    Spacer(modifier = Modifier.height(18.dp))
+    Text(
+      text = "${characterName}를 깨우는 중이에요…",
+      color = Color.White,
+      fontWeight = FontWeight.SemiBold,
+      fontSize = 16.sp,
+      textAlign = TextAlign.Center,
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+      text = "모델을 처음 불러올 때는 시간이 조금 걸려요.",
+      color = Color.White.copy(alpha = 0.75f),
+      fontSize = 13.sp,
+      textAlign = TextAlign.Center,
+    )
   }
 }
 
@@ -548,6 +591,7 @@ private fun VoiceChatBubble(message: ChatMessage, avatarRes: Int) {
 @Composable
 private fun InputBar(
   enabled: Boolean,
+  disabledPlaceholder: String,
   isListening: Boolean,
   isThinking: Boolean,
   isSpeaking: Boolean,
@@ -571,7 +615,7 @@ private fun InputBar(
       Box(modifier = Modifier.weight(1f)) {
         if (text.isEmpty()) {
           Text(
-            text = if (enabled) "메시지 입력…" else "설정에서 모델 준비",
+            text = if (enabled) "메시지 입력…" else disabledPlaceholder,
             color = Color.White.copy(alpha = 0.5f),
             fontSize = 15.sp,
           )

@@ -121,6 +121,18 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
     persist(_state.value.copy(defaultVoiceId = voiceId))
   }
 
+  // Transient (not persisted) marker of the last "model|character" the chat model was initialized
+  // for, so the chat doesn't needlessly re-initialize (which is slow) when nothing relevant changed
+  // — e.g. on every return from the settings screen.
+  @Volatile private var lastInitSignature: String = ""
+
+  /** Returns true (recording the new value) if [signature] differs from the last one initialized. */
+  fun needsModelInit(signature: String): Boolean {
+    if (signature == lastInitSignature) return false
+    lastInitSignature = signature
+    return true
+  }
+
   /** Whether [character] is available to use (free, already purchased, or unlocked by Pro). */
   fun isUnlocked(character: Character): Boolean {
     val s = _state.value
