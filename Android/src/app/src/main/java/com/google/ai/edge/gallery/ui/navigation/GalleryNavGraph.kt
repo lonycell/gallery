@@ -232,20 +232,22 @@ fun GalleryNavHost(
           navigateUp = { navController.navigateUp() },
         )
       }
-    }
-
-    // Character selection.
-    composable(
-      route = ROUTE_CHARACTERS,
-      enterTransition = { slideEnter() },
-      exitTransition = { slideExit() },
-    ) {
-      CharacterScreen(
-        viewModel = hiltViewModel(),
-        onStartChat = { navController.popBackStack(ROUTE_MAINPAGE, inclusive = false) },
-        onOpenSubscription = { navController.navigate(ROUTE_SUBSCRIPTION) },
-        navigateUp = { navController.navigateUp() },
-      )
+      // Character selection — inside the voice graph so it shares the chat's VoiceAssistantViewModel
+      // (and thus its loaded TTS voices) for per-character voice assignment.
+      composable(
+        route = ROUTE_CHARACTERS,
+        enterTransition = { slideEnter() },
+        exitTransition = { slideExit() },
+      ) { entry ->
+        val parentEntry = remember(entry) { navController.getBackStackEntry(ROUTE_VOICE_GRAPH) }
+        CharacterScreen(
+          viewModel = hiltViewModel(parentEntry),
+          voiceAssistantViewModel = hiltViewModel(parentEntry),
+          onStartChat = { navController.popBackStack(ROUTE_MAINPAGE, inclusive = false) },
+          onOpenSubscription = { navController.navigate(ROUTE_SUBSCRIPTION) },
+          navigateUp = { navController.navigateUp() },
+        )
+      }
     }
 
     // Pro subscription paywall.

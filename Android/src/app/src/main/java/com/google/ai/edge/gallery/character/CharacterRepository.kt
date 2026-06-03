@@ -44,6 +44,8 @@ data class CharacterState(
   val unlockedIds: Set<String> = emptySet(),
   val selectedId: String = "",
   val isPro: Boolean = false,
+  /** Per-character TTS voice id (e.g. "neural:kss", "neural:melo", "system:<name>"). */
+  val voiceByCharacter: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -72,6 +74,7 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       unlockedIds = prefs.getStringSet(KEY_UNLOCKED, emptySet())?.toSet() ?: emptySet(),
       selectedId = prefs.getString(KEY_SELECTED, defaultSelected) ?: defaultSelected,
       isPro = prefs.getBoolean(KEY_PRO, false),
+      voiceByCharacter = decodeVoices(prefs.getStringSet(KEY_VOICES, emptySet())),
     )
   }
 
@@ -82,9 +85,32 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       .putStringSet(KEY_UNLOCKED, newState.unlockedIds)
       .putString(KEY_SELECTED, newState.selectedId)
       .putBoolean(KEY_PRO, newState.isPro)
+      .putStringSet(KEY_VOICES, encodeVoices(newState.voiceByCharacter))
       .apply()
     _state.value = newState
   }
+
+  // Voices are stored as a string set of "characterId=voiceId" entries (voice ids never contain '=').
+  private fun decodeVoices(raw: Set<String>?): Map<String, String> =
+    raw
+      ?.mapNotNull { entry ->
+        val idx = entry.indexOf('=')
+        if (idx <= 0) null else entry.substring(0, idx) to entry.substring(idx + 1)
+      }
+      ?.toMap() ?: emptyMap()
+
+  private fun encodeVoices(map: Map<String, String>): Set<String> =
+    map.entries.map { "${it.key}=${it.value}" }.toSet()
+
+  /** Assigns the TTS voice [voiceId] to [characterId]. */
+  fun setVoiceForCharacter(characterId: String, voiceId: String) {
+    val updated = _state.value.voiceByCharacter.toMutableMap().apply { put(characterId, voiceId) }
+    persist(_state.value.copy(voiceByCharacter = updated))
+  }
+
+  /** The voice assigned to [characterId], or an empty string if none has been chosen. */
+  fun voiceForCharacter(characterId: String): String =
+    _state.value.voiceByCharacter[characterId] ?: ""
 
   /** Whether [character] is available to use (free, already purchased, or unlocked by Pro). */
   fun isUnlocked(character: Character): Boolean {
@@ -138,5 +164,6 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
     const val KEY_UNLOCKED = "unlocked_ids"
     const val KEY_SELECTED = "selected_id"
     const val KEY_PRO = "is_pro"
+    const val KEY_VOICES = "voice_by_character"
   }
 }

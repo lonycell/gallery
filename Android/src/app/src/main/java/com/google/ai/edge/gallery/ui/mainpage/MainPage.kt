@@ -207,6 +207,19 @@ fun MainPage(
     )
   }
 
+  // Apply the selected character's assigned TTS voice (engine + voice) to the shared engine, so the
+  // chat speaks in that character's voice. Re-applied when voices become available (e.g. a neural
+  // voice finishes downloading).
+  val assignedVoice = charState.voiceByCharacter[charState.selectedId] ?: ""
+  LaunchedEffect(charState.selectedId, assignedVoice, uiState.voices.size) {
+    // Use the character's chosen voice; if none is set, fall back to the default (first available,
+    // neural-preferred) so a character never inherits the previous character's voice.
+    val target = assignedVoice.ifEmpty { uiState.voices.firstOrNull()?.id ?: "" }
+    if (target.isNotEmpty()) {
+      viewModel.selectVoice(target)
+    }
+  }
+
   // Reinitialize when the available skills/MCP tools change so function calling reflects them.
   var lastCapabilityKey by remember { mutableStateOf(uiState.mcpToolCount to uiState.skillCount) }
   LaunchedEffect(uiState.mcpToolCount, uiState.skillCount, selectedModel.name) {

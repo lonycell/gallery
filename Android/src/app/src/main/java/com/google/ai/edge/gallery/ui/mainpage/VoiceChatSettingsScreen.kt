@@ -230,28 +230,12 @@ fun VoiceChatSettingsScreen(
 
       // --- TTS ---
       SettingsSection(title = "음성 합성 (TTS)", subtitle = "AI의 답변을 읽어주는 목소리") {
-        if (uiState.voices.size > 1) {
-          Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            uiState.voices.forEach { voice ->
-              ChoiceChip(
-                label = voice.label,
-                selected = voice.id == uiState.selectedVoiceId,
-                neural = voice.isNeural,
-              ) {
-                viewModel.selectVoice(voice.id)
-              }
-            }
-          }
-        } else {
-          Text(
-            "시스템 기본 음성을 사용 중입니다.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
+        Text(
+          "목소리는 캐릭터마다 따로 지정해요. 캐릭터 상세 화면에서 보이스를 선택하세요. " +
+            "여기서는 더 자연스러운 음성 모델을 내려받을 수 있어요.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         if (uiState.ttsReady) {
           Spacer(modifier = Modifier.height(10.dp))

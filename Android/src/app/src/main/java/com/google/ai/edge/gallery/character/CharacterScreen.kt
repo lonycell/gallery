@@ -44,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MonetizationOn
@@ -72,6 +73,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
+import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceOption
 
 private val ScrimBase = Color(0xFF140A2B)
 private val AccentPurple = Color(0xFF7C4DFF)
@@ -87,11 +90,13 @@ private val CoinGold = Color(0xFFFFC93C)
 @Composable
 fun CharacterScreen(
   viewModel: CharacterViewModel,
+  voiceAssistantViewModel: VoiceAssistantViewModel,
   onStartChat: () -> Unit,
   onOpenSubscription: () -> Unit,
   navigateUp: () -> Unit,
 ) {
   val state by viewModel.state.collectAsState()
+  val vaState by voiceAssistantViewModel.uiState.collectAsState()
   var detail by remember { mutableStateOf<Character?>(null) }
 
   Scaffold(
@@ -137,6 +142,9 @@ fun CharacterScreen(
       character = character,
       unlocked = viewModel.isUnlocked(character),
       coins = state.coins,
+      voices = vaState.voices,
+      selectedVoiceId = state.voiceByCharacter[character.id] ?: "",
+      onSelectVoice = { voiceId -> viewModel.setVoiceForCharacter(character.id, voiceId) },
       onDismiss = { detail = null },
       onChat = {
         viewModel.select(character.id)
@@ -271,6 +279,9 @@ private fun CharacterDetail(
   character: Character,
   unlocked: Boolean,
   coins: Int,
+  voices: List<VoiceOption>,
+  selectedVoiceId: String,
+  onSelectVoice: (String) -> Unit,
   onDismiss: () -> Unit,
   onChat: () -> Unit,
   onUnlockWithCoins: () -> Boolean,
@@ -333,6 +344,46 @@ private fun CharacterDetail(
                   .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
               Text("# $topic", color = Color.White, fontSize = 12.sp)
+            }
+          }
+        }
+
+        // Voice (TTS engine + voice) selection for this character.
+        Spacer(modifier = Modifier.height(2.dp))
+        Text("보이스", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        if (voices.isEmpty()) {
+          Text(
+            "음성을 준비하는 중이에요. 설정에서 음성 모델을 받으면 더 다양한 목소리를 고를 수 있어요.",
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+          )
+        } else {
+          FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            voices.forEach { voice ->
+              val selected = voice.id == selectedVoiceId
+              Row(
+                modifier =
+                  Modifier.clip(RoundedCornerShape(50))
+                    .background(if (selected) AccentPurple else Color.White.copy(alpha = 0.16f))
+                    .clickable { onSelectVoice(voice.id) }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                if (voice.isNeural) {
+                  Icon(
+                    Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(13.dp),
+                  )
+                  Spacer(modifier = Modifier.width(5.dp))
+                }
+                Text(voice.label, color = Color.White, fontSize = 12.sp)
+              }
             }
           }
         }
