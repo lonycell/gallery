@@ -539,6 +539,20 @@ constructor(
     // Ignore "no match" / "speech timeout" which are common and not worth surfacing loudly.
     if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
       Log.w(TAG, "SpeechRecognizer error: $error")
+      // Surface a clear, actionable message for the cases the user can do something about, instead
+      // of silently bouncing back to idle.
+      val message =
+        when (error) {
+          SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+            "마이크 권한이 필요해요. 설정에서 마이크 권한을 허용해 주세요."
+          SpeechRecognizer.ERROR_NETWORK,
+          SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
+            "네트워크 음성 인식에 실패했어요. 설정에서 오프라인 음성 인식 모델을 받아보세요."
+          else -> ""
+        }
+      if (message.isNotEmpty()) {
+        _uiState.update { it.copy(error = message) }
+      }
     }
   }
 

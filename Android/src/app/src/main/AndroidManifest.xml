@@ -55,6 +55,11 @@
          the KakaoTalk app via an explicit ACTION_SEND intent. See customtasks/kakao. -->
     <queries>
         <package android:name="com.kakao.talk" />
+        <!-- So the system SpeechRecognizer can find/bind the on-device speech recognition service;
+             without this, recognition fails on Android 11+ with ERROR_INSUFFICIENT_PERMISSIONS. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 
     <application
