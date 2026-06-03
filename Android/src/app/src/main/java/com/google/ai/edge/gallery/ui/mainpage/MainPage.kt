@@ -315,25 +315,12 @@ private fun VoiceChatContent(
     )
   }
 
+  // Microphone handling mirrors the original Voice Assistant screen exactly: request the permission
+  // only on the first mic tap, then start listening.
   val micPermissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
       if (granted) viewModel.startListening()
     }
-
-  // Ask for the microphone permission up front (when the chat opens) rather than on the first mic
-  // tap. Requesting it at tap time popped the system dialog, which stopped the activity and could
-  // start the recognizer before the grant took effect (a recording security error). This separate
-  // launcher only records the grant; it does not auto-start listening.
-  val recordPermissionRequest =
-    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-  LaunchedEffect(Unit) {
-    if (
-      ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
-        PackageManager.PERMISSION_GRANTED
-    ) {
-      recordPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
-    }
-  }
 
   val toggleMic: () -> Unit = {
     if (uiState.isListening) {
