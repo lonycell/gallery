@@ -208,14 +208,26 @@ constructor(
   // override this via its bcp47Language.
   private var speechLocale: Locale = Locale.KOREAN
 
-  private val speechRecognizer: SpeechRecognizer? =
-    if (SpeechRecognizer.isRecognitionAvailable(context)) {
-      SpeechRecognizer.createSpeechRecognizer(context).apply {
-        setRecognitionListener(this@VoiceAssistantViewModel)
-      }
-    } else {
-      null
+  // Created lazily on first use rather than eagerly at construction. createSpeechRecognizer() binds
+  // to the system RecognitionService, which captures the app's RECORD_AUDIO grant state at bind
+  // time. Binding here (when the screen opens, before the user has granted the mic) leaves the
+  // binding unprivileged, so recording later fails with ERROR_AUDIO even after the grant. Building it
+  // on the first startListening() — which the screen only calls once permission is held — avoids that
+  // stale-binding failure.
+  private var speechRecognizer: SpeechRecognizer? = null
+
+  /** Lazily creates the system recognizer (must run on the main thread). Null if unavailable. */
+  private fun ensureSpeechRecognizer(): SpeechRecognizer? {
+    speechRecognizer?.let {
+      return it
     }
+    if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+      return null
+    }
+    return SpeechRecognizer.createSpeechRecognizer(context)
+      .apply { setRecognitionListener(this@VoiceAssistantViewModel) }
+      .also { speechRecognizer = it }
+  }
 
   private var tts: TextToSpeech? = null
 
@@ -442,7 +454,7 @@ constructor(
       return
     }
 
-    val recognizer = speechRecognizer
+    val recognizer = ensureSpeechRecognizer()
     if (recognizer == null) {
       _uiState.update { it.copy(error = "이 기기에서는 음성 인식을 사용할 수 없습니다.") }
       return

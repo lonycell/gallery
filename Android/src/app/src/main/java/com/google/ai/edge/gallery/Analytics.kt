@@ -31,6 +31,7 @@ val firebaseAnalytics: FirebaseAnalytics?
         // missing google-services.json.
         if (!hasLoggedAnalyticsWarning) {
           Log.w("AGAnalyticsFirebase", "Firebase Analytics is not available", exception)
+          hasLoggedAnalyticsWarning = true
         }
       }
       .getOrNull()
