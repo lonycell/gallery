@@ -16,111 +16,247 @@
 
 package com.google.ai.edge.gallery.ui.mainpage
 
-import androidx.annotation.StringRes
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.KeyboardDoubleArrowRight
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.common.PermissionResult
+import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDialog
+import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
+import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
+import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessage
+import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
+import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
+import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantUiState
+import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
+import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 
-// Paywall palette, tuned to match the reference mock-up (deep purple + violet/pink accents).
+// Shared palette with the subscription paywall for a consistent, futuristic look.
 private val ScrimBase = Color(0xFF140A2B)
 private val AccentPurple = Color(0xFF7C4DFF)
 private val AccentPink = Color(0xFFE15BD0)
-private val FeatureBullet = Color(0xFFFFB23E)
-
-/** A single selectable subscription plan shown in the pricing row. */
-private data class PlanOption(
-  @StringRes val nameRes: Int,
-  @StringRes val priceRes: Int,
-  @StringRes val badgeRes: Int?,
-  /** Whether the badge uses the highlighted (gradient) style. */
-  val badgeHighlighted: Boolean,
-)
+private val ListeningColor = Color(0xFF34E1C4)
+private val ThinkingColor = Color(0xFF9B7BFF)
+private val SpeakingColor = Color(0xFF4D8DFF)
 
 /**
- * The app's main landing / paywall screen, shown first as the start destination.
+ * The app's main screen: a futuristic voice-call style chat with the persona on the hero image.
  *
- * The layout mirrors a "Pro" subscription paywall: a full-bleed persona hero image with a purple
- * scrim, the app brand with a Pro badge, a value proposition title, a feature list, three
- * selectable pricing plans and a purchase call-to-action.
+ * The user talks to (and texts with) the persona. Speech recognition, the on-device LLM and
+ * text-to-speech are all reused from the Voice Assistant ([VoiceAssistantViewModel]); this screen
+ * only owns the presentation. Choosing/downloading the LLM, STT and TTS models, plus tools, skills
+ * and the subscription, all live in [VoiceChatSettingsScreen], reached via the gear in the top-right
+ * corner — so this screen stays focused on the conversation and never nags the user to pick a model.
  *
- * There is no real billing integration in this project, so both the close button and the purchase
- * button simply continue into the main app via [onGetStarted], reusing the existing navigation
- * contract. Plan selection is local UI state that drives the price shown on the CTA.
- *
- * Registered in the nav graph under the `mainpage` route. See
- * [com.google.ai.edge.gallery.ui.navigation.GalleryNavHost].
+ * The "listening" orb animation and the microphone control from the original Voice Assistant are
+ * merged into a single animated mic-orb at the bottom-right of the input bar.
  */
 @Composable
-fun MainPage(onGetStarted: () -> Unit, modifier: Modifier = Modifier) {
-  val plans =
-    listOf(
-      PlanOption(R.string.paywall_plan_weekly, R.string.paywall_price_weekly, null, false),
-      PlanOption(
-        R.string.paywall_plan_yearly,
-        R.string.paywall_price_yearly,
-        R.string.paywall_badge_best_value,
-        badgeHighlighted = true,
-      ),
-      PlanOption(
-        R.string.paywall_plan_monthly,
-        R.string.paywall_price_monthly,
-        R.string.paywall_badge_most_popular,
-        badgeHighlighted = false,
-      ),
-    )
-  // Default to the "Yearly / BEST VALUE" plan, matching the reference design.
-  var selectedIndex by remember { mutableIntStateOf(1) }
+fun MainPage(
+  modelManagerViewModel: com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel,
+  viewModel: VoiceAssistantViewModel,
+  skillManagerViewModel: SkillManagerViewModel,
+  mcpManagerViewModel: McpManagerViewModel,
+  onOpenSettings: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val context = LocalContext.current
+  val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
+  val uiState by viewModel.uiState.collectAsState()
 
-  val featureRes =
-    listOf(
-      R.string.paywall_feature_1,
-      R.string.paywall_feature_2,
-      R.string.paywall_feature_3,
-      R.string.paywall_feature_4,
-      R.string.paywall_feature_5,
-      R.string.paywall_feature_6,
-      R.string.paywall_feature_7,
+  // Resolve the Voice Assistant task + its shared tool surface.
+  val voiceTask = modelManagerViewModel.getTaskById(VOICE_ASSISTANT_TASK_ID)
+  val voiceCustomTask =
+    modelManagerViewModel.getCustomTaskByTaskId(VOICE_ASSISTANT_TASK_ID) as? VoiceAssistantTask
+
+  if (voiceTask == null || voiceCustomTask == null) {
+    // Tasks not loaded yet — show the hero with a subtle scrim while we wait.
+    Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
+      Image(
+        painter = painterResource(R.drawable.persona_hero),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alignment = Alignment.TopCenter,
+        modifier = Modifier.fillMaxSize(),
+      )
+    }
+    return
+  }
+
+  // Keep the shared ViewModel + engines wired regardless of which screen is visible.
+  VoiceChatPlumbing(
+    task = voiceTask,
+    modelManagerViewModel = modelManagerViewModel,
+    viewModel = viewModel,
+    skillManagerViewModel = skillManagerViewModel,
+    mcpManagerViewModel = mcpManagerViewModel,
+    agentTools = voiceCustomTask.agentTools,
+  )
+
+  // Pick the model to chat with: prefer the currently-selected model if it is one of this task's
+  // (downloaded) LLMs, otherwise the first downloaded LLM. Selection + download happens in settings.
+  val selectedModel = modelManagerUiState.selectedModel
+  val targetModel =
+    remember(
+      voiceTask.models.map { it.name },
+      modelManagerUiState.modelDownloadStatus,
+      selectedModel.name,
+    ) {
+      fun downloaded(name: String) =
+        modelManagerUiState.modelDownloadStatus[name]?.status ==
+          ModelDownloadStatusType.SUCCEEDED
+      when {
+        selectedModel.name.isNotEmpty() &&
+          voiceTask.models.any { it.name == selectedModel.name } &&
+          downloaded(selectedModel.name) -> selectedModel
+        else -> voiceTask.models.firstOrNull { downloaded(it.name) }
+      }
+    }
+
+  // Select + initialize the chosen model while the chat is visible.
+  LaunchedEffect(targetModel?.name) {
+    val m = targetModel ?: return@LaunchedEffect
+    if (selectedModel.name != m.name) {
+      modelManagerViewModel.selectModel(m)
+    }
+    modelManagerViewModel.initializeModel(context = context, task = voiceTask, model = m)
+  }
+
+  // Reinitialize when the available skills/MCP tools change so function calling reflects them.
+  var lastCapabilityKey by remember { mutableStateOf(uiState.mcpToolCount to uiState.skillCount) }
+  LaunchedEffect(uiState.mcpToolCount, uiState.skillCount, selectedModel.name) {
+    val key = uiState.mcpToolCount to uiState.skillCount
+    if (
+      key != lastCapabilityKey &&
+        selectedModel.name.isNotEmpty() &&
+        modelManagerUiState.isModelInitialized(selectedModel)
+    ) {
+      lastCapabilityKey = key
+      modelManagerViewModel.initializeModel(
+        context = context,
+        task = voiceTask,
+        model = selectedModel,
+        force = true,
+      )
+    } else {
+      lastCapabilityKey = key
+    }
+  }
+
+  val modelReady =
+    selectedModel.name.isNotEmpty() && modelManagerUiState.isModelInitialized(selectedModel)
+
+  // Pending MCP tool-call permission dialog (tools run during the chat).
+  val mcpPermission by viewModel.mcpPermissionRequest.collectAsState()
+  mcpPermission?.let { action ->
+    McpToolCallPermissionDialog(
+      toolName = action.toolName,
+      argument = action.argument,
+      onResult = { result ->
+        if (result == PermissionResult.ALWAYS_ALLOW) {
+          mcpManagerViewModel.uiState.value.mcpServers
+            .find { s -> s.mcpServer.toolsList.any { it.name == action.toolName } }
+            ?.mcpServer
+            ?.url
+            ?.let { url ->
+              mcpManagerViewModel.setMcpToolAlwaysAllow(
+                url = url,
+                toolName = action.toolName,
+                alwaysAllow = true,
+              )
+            }
+        }
+        viewModel.resolveMcpPermission(result)
+      },
     )
+  }
+
+  val micPermissionLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      if (granted) viewModel.startListening()
+    }
+
+  val toggleMic: () -> Unit = {
+    if (uiState.isListening) {
+      viewModel.stopListening()
+    } else {
+      val granted =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+          PackageManager.PERMISSION_GRANTED
+      if (granted) viewModel.startListening()
+      else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+  }
 
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
-    // Full-bleed persona hero image.
+    // Hero persona.
     Image(
       painter = painterResource(R.drawable.persona_hero),
       contentDescription = null,
@@ -128,222 +264,416 @@ fun MainPage(onGetStarted: () -> Unit, modifier: Modifier = Modifier) {
       alignment = Alignment.TopCenter,
       modifier = Modifier.fillMaxSize(),
     )
-    // Purple scrim so the content stays readable over the photo.
+    // Scrim: light at the top (show the face), heavy at the bottom (chat legibility).
     Box(
       modifier =
         Modifier.fillMaxSize()
           .background(
             Brush.verticalGradient(
-              0.0f to ScrimBase.copy(alpha = 0.20f),
-              0.42f to ScrimBase.copy(alpha = 0.60f),
-              0.70f to ScrimBase.copy(alpha = 0.95f),
-              1.0f to ScrimBase,
+              0.0f to ScrimBase.copy(alpha = 0.10f),
+              0.34f to ScrimBase.copy(alpha = 0.18f),
+              0.60f to ScrimBase.copy(alpha = 0.62f),
+              1.0f to ScrimBase.copy(alpha = 0.97f),
             )
           )
     )
 
-    Column(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
-      // Close button.
-      Box(
-        modifier =
-          Modifier.padding(top = 8.dp)
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.25f))
-            .clickable { onGetStarted() },
-        contentAlignment = Alignment.Center,
-      ) {
-        Icon(
-          Icons.Rounded.Close,
-          contentDescription = stringResource(R.string.paywall_close),
-          tint = Color.White,
-          modifier = Modifier.size(20.dp),
-        )
-      }
-
-      // Brand + Pro badge.
+    Column(modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+      // Top bar: brand + status, settings gear.
       Row(
-        modifier = Modifier.padding(top = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Text(
-          text = stringResource(R.string.app_name),
-          color = Color.White,
-          fontWeight = FontWeight.Bold,
-          fontSize = 26.sp,
-        )
-        Spacer(modifier = Modifier.size(8.dp))
-        Box(
-          modifier =
-            Modifier.clip(RoundedCornerShape(8.dp))
-              .background(Brush.horizontalGradient(listOf(AccentPurple, AccentPink)))
-              .padding(horizontal = 8.dp, vertical = 2.dp)
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
           Text(
-            text = stringResource(R.string.paywall_pro_badge),
+            text = stringResource(R.string.app_name),
             color = Color.White,
             fontWeight = FontWeight.Bold,
+            fontSize = 20.sp,
+          )
+          Text(
+            text = statusLabel(uiState, modelReady),
+            color = Color.White.copy(alpha = 0.7f),
             fontSize = 12.sp,
           )
         }
-      }
-
-      // Reveal the hero face before the value proposition.
-      Spacer(modifier = Modifier.weight(0.45f))
-
-      // Value proposition title.
-      Text(
-        text = stringResource(R.string.paywall_title),
-        color = Color.White,
-        fontWeight = FontWeight.ExtraBold,
-        fontSize = 30.sp,
-        lineHeight = 36.sp,
-      )
-
-      Spacer(modifier = Modifier.size(16.dp))
-
-      // Feature list.
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        for (res in featureRes) {
-          FeatureRow(text = stringResource(res))
-        }
-      }
-
-      // Push the pricing + CTA to the bottom.
-      Spacer(modifier = Modifier.weight(1f))
-
-      // Pricing plans.
-      Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-      ) {
-        plans.forEachIndexed { index, plan ->
-          PlanCard(
-            plan = plan,
-            selected = index == selectedIndex,
-            onClick = { selectedIndex = index },
-            modifier = Modifier.weight(1f),
+        FrostedCircleButton(onClick = onOpenSettings) {
+          Icon(
+            Icons.Rounded.Settings,
+            contentDescription = stringResource(R.string.voice_settings_title),
+            tint = Color.White,
+            modifier = Modifier.size(22.dp),
           )
         }
       }
 
-      Spacer(modifier = Modifier.size(16.dp))
+      // Conversation transcript.
+      Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        when {
+          !modelReady -> NotReadyHint(onOpenSettings = onOpenSettings)
+          uiState.messages.isEmpty() -> GreetingHint()
+          else -> Transcript(messages = uiState.messages)
+        }
+      }
 
-      // Purchase call-to-action. Shows the price of the selected plan.
-      val price = stringResource(plans[selectedIndex].priceRes)
-      Box(
-        modifier =
-          Modifier.fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(Brush.horizontalGradient(listOf(AccentPurple, AccentPink)))
-            .clickable { onGetStarted() },
-        contentAlignment = Alignment.Center,
+      // Live partial transcript while listening.
+      AnimatedVisibility(
+        visible = uiState.isListening && uiState.partialTranscript.isNotEmpty(),
+        enter = fadeIn(),
+        exit = fadeOut(),
       ) {
         Text(
-          text = stringResource(R.string.paywall_cta, price),
-          color = Color.White,
-          fontWeight = FontWeight.Bold,
-          fontSize = 17.sp,
+          text = uiState.partialTranscript,
+          color = ListeningColor,
+          fontSize = 15.sp,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp),
         )
       }
 
-      Spacer(modifier = Modifier.size(12.dp))
+      if (uiState.error.isNotEmpty()) {
+        Text(
+          text = uiState.error,
+          color = MaterialTheme.colorScheme.error,
+          fontSize = 12.sp,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+        )
+      }
+
+      // Input bar: text field + the merged mic-orb.
+      InputBar(
+        enabled = modelReady,
+        isListening = uiState.isListening,
+        isThinking = uiState.isThinking,
+        isSpeaking = uiState.isSpeaking,
+        onSendText = { text ->
+          targetModel?.let { viewModel.sendStarter(text, it) }
+        },
+        onMicClick = toggleMic,
+        modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp, top = 4.dp),
+      )
+    }
+  }
+}
+
+private fun statusLabel(state: VoiceAssistantUiState, modelReady: Boolean): String =
+  when {
+    !modelReady -> "설정에서 AI 모델을 준비해 주세요"
+    state.isListening -> "듣고 있어요…"
+    state.isThinking -> "생각 중…"
+    state.isSpeaking -> "말하는 중…"
+    else -> "마이크를 누르거나 메시지를 입력하세요"
+  }
+
+@Composable
+private fun FrostedCircleButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+  Box(
+    modifier =
+      Modifier.size(40.dp)
+        .clip(CircleShape)
+        .background(Color.White.copy(alpha = 0.16f))
+        .clickable { onClick() },
+    contentAlignment = Alignment.Center,
+  ) {
+    content()
+  }
+}
+
+@Composable
+private fun NotReadyHint(onOpenSettings: () -> Unit) {
+  Column(
+    modifier = Modifier.fillMaxSize().padding(horizontal = 36.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center,
+  ) {
+    Text(
+      text = "대화를 시작하려면 AI 모델이 필요해요",
+      color = Color.White,
+      fontWeight = FontWeight.SemiBold,
+      fontSize = 17.sp,
+      textAlign = TextAlign.Center,
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    Text(
+      text = "설정에서 모델을 한 번만 내려받으면 오프라인으로 대화할 수 있습니다.",
+      color = Color.White.copy(alpha = 0.75f),
+      fontSize = 13.sp,
+      textAlign = TextAlign.Center,
+    )
+    Spacer(modifier = Modifier.height(18.dp))
+    Box(
+      modifier =
+        Modifier.clip(RoundedCornerShape(24.dp))
+          .background(Brush.horizontalGradient(listOf(AccentPurple, AccentPink)))
+          .clickable { onOpenSettings() }
+          .padding(horizontal = 22.dp, vertical = 12.dp)
+    ) {
+      Text(text = "설정 열기", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
     }
   }
 }
 
 @Composable
-private fun FeatureRow(text: String, modifier: Modifier = Modifier) {
-  Row(modifier = modifier, verticalAlignment = Alignment.Top) {
-    Icon(
-      Icons.Rounded.KeyboardDoubleArrowRight,
-      contentDescription = null,
-      tint = FeatureBullet,
-      modifier = Modifier.size(20.dp),
-    )
-    Spacer(modifier = Modifier.size(10.dp))
+private fun GreetingHint() {
+  Column(
+    modifier = Modifier.fillMaxSize().padding(horizontal = 36.dp, vertical = 24.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Bottom,
+  ) {
     Text(
-      text = text,
+      text = "안녕! 편하게 말 걸어줘 😊",
       color = Color.White,
-      fontSize = 14.sp,
-      lineHeight = 19.sp,
-      style = MaterialTheme.typography.bodyMedium,
+      fontWeight = FontWeight.SemiBold,
+      fontSize = 16.sp,
+      textAlign = TextAlign.Center,
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+      text = "마이크를 눌러 음성으로, 또는 아래에 메시지를 입력해 대화를 시작하세요.",
+      color = Color.White.copy(alpha = 0.7f),
+      fontSize = 13.sp,
+      textAlign = TextAlign.Center,
     )
   }
 }
 
 @Composable
-private fun PlanCard(
-  plan: PlanOption,
-  selected: Boolean,
-  onClick: () -> Unit,
+private fun Transcript(messages: List<ChatMessage>) {
+  val listState = rememberLazyListState()
+  // Keep the latest message in view as it streams in.
+  LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
+    if (messages.isNotEmpty()) {
+      listState.animateScrollToItem(messages.size - 1)
+    }
+  }
+  LazyColumn(
+    state = listState,
+    modifier = Modifier.fillMaxSize(),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+  ) {
+    items(messages) { message -> VoiceChatBubble(message) }
+  }
+}
+
+@Composable
+private fun VoiceChatBubble(message: ChatMessage) {
+  val isUser = message.role == ChatMessage.Role.USER
+  val text = message.text.ifEmpty { if (message.isStreaming) "…" else "" }
+  if (text.isEmpty()) return
+
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+    verticalAlignment = Alignment.Bottom,
+  ) {
+    if (!isUser) {
+      Image(
+        painter = painterResource(R.drawable.persona_hero),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.size(30.dp).clip(CircleShape),
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+    }
+
+    val shape =
+      RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = if (isUser) 20.dp else 6.dp,
+        bottomEnd = if (isUser) 6.dp else 20.dp,
+      )
+    val bubbleModifier =
+      if (isUser) {
+        Modifier.clip(shape)
+          .background(Brush.horizontalGradient(listOf(AccentPurple, AccentPink)))
+      } else {
+        Modifier.clip(shape).background(Color.White.copy(alpha = 0.14f))
+      }
+    Box(modifier = Modifier.widthIn(max = 280.dp).then(bubbleModifier)) {
+      Text(
+        text = text,
+        color = Color.White,
+        fontSize = 15.sp,
+        lineHeight = 21.sp,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+      )
+    }
+  }
+}
+
+@Composable
+private fun InputBar(
+  enabled: Boolean,
+  isListening: Boolean,
+  isThinking: Boolean,
+  isSpeaking: Boolean,
+  onSendText: (String) -> Unit,
+  onMicClick: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-    // Badge sits above the card. Reserve the height even when absent so cards stay aligned.
-    Box(modifier = Modifier.height(22.dp), contentAlignment = Alignment.Center) {
-      if (plan.badgeRes != null) {
-        val badgeModifier =
-          if (plan.badgeHighlighted) {
-            Modifier.background(Brush.horizontalGradient(listOf(AccentPurple, AccentPink)))
-          } else {
-            Modifier.background(Color.White.copy(alpha = 0.20f))
-          }
+  var text by remember { mutableStateOf("") }
+  val canSend = enabled && text.isNotBlank()
+
+  Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    // Text field pill.
+    Row(
+      modifier =
+        Modifier.weight(1f)
+          .clip(RoundedCornerShape(26.dp))
+          .background(Color.White.copy(alpha = 0.14f))
+          .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Box(modifier = Modifier.weight(1f)) {
+        if (text.isEmpty()) {
+          Text(
+            text = if (enabled) "메시지 입력…" else "설정에서 모델 준비",
+            color = Color.White.copy(alpha = 0.5f),
+            fontSize = 15.sp,
+          )
+        }
+        BasicTextField(
+          value = text,
+          onValueChange = { if (enabled) text = it },
+          enabled = enabled,
+          textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
+          cursorBrush = SolidColor(AccentPink),
+          modifier = Modifier.fillMaxWidth(),
+        )
+      }
+      // Send button appears once there's text to send.
+      AnimatedVisibility(visible = canSend, enter = fadeIn(), exit = fadeOut()) {
         Box(
           modifier =
-            Modifier.clip(RoundedCornerShape(8.dp)).then(badgeModifier).padding(
-              horizontal = 8.dp,
-              vertical = 3.dp,
-            )
+            Modifier.size(40.dp)
+              .clip(CircleShape)
+              .background(Brush.horizontalGradient(listOf(AccentPurple, AccentPink)))
+              .clickable {
+                if (canSend) {
+                  onSendText(text.trim())
+                  text = ""
+                }
+              },
+          contentAlignment = Alignment.Center,
         ) {
-          Text(
-            text = stringResource(plan.badgeRes),
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 9.sp,
-            maxLines = 1,
+          Icon(
+            Icons.AutoMirrored.Rounded.Send,
+            contentDescription = "보내기",
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
           )
         }
       }
     }
 
-    Spacer(modifier = Modifier.size(6.dp))
+    Spacer(modifier = Modifier.width(10.dp))
 
-    val cardModifier =
-      if (selected) {
-        Modifier.background(AccentPurple.copy(alpha = 0.92f))
-          .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(18.dp))
-      } else {
-        Modifier.background(Color.White.copy(alpha = 0.12f))
-      }
+    // The merged listening-orb + microphone control.
+    MicOrb(
+      enabled = enabled,
+      isListening = isListening,
+      isThinking = isThinking,
+      isSpeaking = isSpeaking,
+      onClick = { if (enabled) onMicClick() },
+    )
+  }
+}
+
+/**
+ * The microphone control with the assistant's reactive "orb" animation merged in: a pulsing,
+ * rotating halo whose colour reflects the current state (listening / thinking / speaking / idle),
+ * with a mic (or stop) icon in the centre.
+ */
+@Composable
+private fun MicOrb(
+  enabled: Boolean,
+  isListening: Boolean,
+  isThinking: Boolean,
+  isSpeaking: Boolean,
+  onClick: () -> Unit,
+) {
+  val active = isListening || isThinking || isSpeaking
+  val coreColor =
+    when {
+      isListening -> ListeningColor
+      isThinking -> ThinkingColor
+      isSpeaking -> SpeakingColor
+      else -> AccentPurple
+    }
+
+  val transition = rememberInfiniteTransition(label = "micorb")
+  val pulse by
+    transition.animateFloat(
+      initialValue = 0.9f,
+      targetValue = if (active) 1.18f else 1.04f,
+      animationSpec =
+        infiniteRepeatable(
+          animation = tween(durationMillis = if (isListening) 550 else 1300, easing = LinearEasing),
+          repeatMode = RepeatMode.Reverse,
+        ),
+      label = "pulse",
+    )
+  val angle by
+    transition.animateFloat(
+      initialValue = 0f,
+      targetValue = 360f,
+      animationSpec =
+        infiniteRepeatable(
+          animation = tween(durationMillis = 6000, easing = LinearEasing),
+          repeatMode = RepeatMode.Restart,
+        ),
+      label = "angle",
+    )
+
+  Box(contentAlignment = Alignment.Center, modifier = Modifier.size(76.dp)) {
+    // Rotating glow halo.
     Box(
       modifier =
-        Modifier.fillMaxWidth()
-          .height(96.dp)
-          .clip(RoundedCornerShape(18.dp))
-          .then(cardModifier)
+        Modifier.size(76.dp)
+          .graphicsLayer {
+            scaleX = pulse
+            scaleY = pulse
+            rotationZ = angle
+            alpha = if (enabled) 0.55f else 0.2f
+          }
+          .blur(6.dp)
+          .clip(CircleShape)
+          .background(
+            Brush.sweepGradient(
+              listOf(
+                coreColor.copy(alpha = 0f),
+                coreColor.copy(alpha = 0.9f),
+                coreColor.copy(alpha = 0f),
+              )
+            )
+          )
+    )
+    // Solid mic core.
+    Box(
+      modifier =
+        Modifier.size(60.dp)
+          .clip(CircleShape)
+          .background(
+            if (enabled) {
+              Brush.radialGradient(listOf(coreColor, coreColor.copy(alpha = 0.65f)))
+            } else {
+              Brush.radialGradient(
+                listOf(Color.White.copy(alpha = 0.25f), Color.White.copy(alpha = 0.12f))
+              )
+            }
+          )
           .clickable { onClick() },
       contentAlignment = Alignment.Center,
     ) {
-      Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-      ) {
-        Text(
-          text = stringResource(plan.nameRes),
-          color = Color.White,
-          fontWeight = FontWeight.Bold,
-          fontSize = 15.sp,
-          maxLines = 1,
-        )
-        Text(
-          text = stringResource(plan.priceRes),
-          color = Color.White.copy(alpha = 0.9f),
-          fontSize = 13.sp,
-          maxLines = 1,
-        )
-      }
+      Icon(
+        imageVector = if (isListening) Icons.Rounded.Stop else Icons.Rounded.Mic,
+        contentDescription = if (isListening) "듣기 중지" else "듣기 시작",
+        tint = Color.White,
+        modifier = Modifier.size(26.dp),
+      )
     }
   }
 }

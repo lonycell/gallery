@@ -83,7 +83,10 @@ import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.common.chat.ModelDownloadStatusInfoPanel
 import com.google.ai.edge.gallery.ui.home.HomeScreen
 import com.google.ai.edge.gallery.ui.home.PromoScreenGm4
+import androidx.navigation.compose.navigation
 import com.google.ai.edge.gallery.ui.mainpage.MainPage
+import com.google.ai.edge.gallery.ui.mainpage.VoiceChatSettingsScreen
+import com.google.ai.edge.gallery.ui.subscription.SubscriptPage
 import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
@@ -94,7 +97,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGGalleryNavGraph"
+private const val ROUTE_VOICE_GRAPH = "voice_graph"
 private const val ROUTE_MAINPAGE = "mainpage"
+private const val ROUTE_VOICE_SETTINGS = "voice_settings"
+private const val ROUTE_SUBSCRIPTION = "subscription"
 private const val ROUTE_HOMESCREEN = "homepage"
 private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
@@ -188,22 +194,48 @@ fun GalleryNavHost(
 
   NavHost(
     navController = navController,
-    startDestination = ROUTE_MAINPAGE,
+    startDestination = ROUTE_VOICE_GRAPH,
     enterTransition = { EnterTransition.None },
     exitTransition = { ExitTransition.None },
   ) {
-    // Main landing page. Shown first, replacing the home screen as the start destination.
+    // Voice chat experience: the main chat screen and its settings share a single
+    // VoiceAssistantViewModel (and skill/MCP managers), scoped to this nested graph's back stack
+    // entry so selections made in settings take effect in the chat immediately.
+    navigation(startDestination = ROUTE_MAINPAGE, route = ROUTE_VOICE_GRAPH) {
+      composable(route = ROUTE_MAINPAGE) { entry ->
+        val parentEntry = remember(entry) { navController.getBackStackEntry(ROUTE_VOICE_GRAPH) }
+        MainPage(
+          modelManagerViewModel = modelManagerViewModel,
+          viewModel = hiltViewModel(parentEntry),
+          skillManagerViewModel = hiltViewModel(parentEntry),
+          mcpManagerViewModel = hiltViewModel(parentEntry),
+          onOpenSettings = { navController.navigate(ROUTE_VOICE_SETTINGS) },
+        )
+      }
+      composable(
+        route = ROUTE_VOICE_SETTINGS,
+        enterTransition = { slideEnter() },
+        exitTransition = { slideExit() },
+      ) { entry ->
+        val parentEntry = remember(entry) { navController.getBackStackEntry(ROUTE_VOICE_GRAPH) }
+        VoiceChatSettingsScreen(
+          modelManagerViewModel = modelManagerViewModel,
+          viewModel = hiltViewModel(parentEntry),
+          skillManagerViewModel = hiltViewModel(parentEntry),
+          mcpManagerViewModel = hiltViewModel(parentEntry),
+          onOpenSubscription = { navController.navigate(ROUTE_SUBSCRIPTION) },
+          navigateUp = { navController.navigateUp() },
+        )
+      }
+    }
+
+    // Pro subscription paywall.
     composable(
-      route = ROUTE_MAINPAGE,
-      exitTransition = {
-        if (targetState.destination.route == ROUTE_HOMESCREEN) {
-          slideExit()
-        } else {
-          ExitTransition.None
-        }
-      },
+      route = ROUTE_SUBSCRIPTION,
+      enterTransition = { slideUpEnter() },
+      exitTransition = { slideDownExit() },
     ) {
-      MainPage(onGetStarted = { navController.navigate(ROUTE_HOMESCREEN) })
+      SubscriptPage(onClose = { navController.navigateUp() })
     }
 
     // Home screen.

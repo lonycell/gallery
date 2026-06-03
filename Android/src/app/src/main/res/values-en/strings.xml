@@ -39,4 +39,5 @@
   <string name="paywall_badge_most_popular">MOST POPULAR</string>
   <string name="paywall_cta">Subscribe %1$s now</string>
   <string name="paywall_close">Close</string>
+  <string name="voice_settings_title">Settings</string>
 </resources>

@@ -50,6 +50,7 @@
   <string name="paywall_price_yearly" translatable="false">₩48,000</string>
   <string name="paywall_cta">결제 %1$s 지금</string>
   <string name="paywall_close">닫기</string>
+  <string name="voice_settings_title">설정</string>
   <string name="askimage_emptystate_title" translatable="false">Ask Image</string>
   <string name="askimage_emptystate_content" translatable="false">To get started, tap the + below to add an image (max 10 images per chat) and type a prompt to ask a question about it!</string>
   <string name="askimage_emptystate_content_aicore" translatable="false">To get started, tap the + below to add an image (max 1 image per chat) and type a prompt to ask a question about it!</string>
