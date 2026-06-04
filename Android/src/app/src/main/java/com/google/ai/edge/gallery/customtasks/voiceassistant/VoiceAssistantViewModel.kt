@@ -379,25 +379,56 @@ constructor(
   /** Rebuilds the selectable voice list (neural + system) and ensures a valid selection. */
   private fun rebuildVoiceOptions() {
     val options = mutableListOf<VoiceOption>()
-    if (neuralTts != null) {
-      options.add(
-        VoiceOption(
-          id = neuralVoiceId,
-          label = "신경망 음성 (KSS)",
-          subtitle = "고품질·기기 독립",
-          isNeural = true,
+    // A neural model can host multiple speakers (sherpa-onnx `sid`). Expose one voice option per
+    // speaker (id "neural:<engine>#<sid>") so a character can be assigned a specific speaker via the
+    // existing per-character voice selection. Single-speaker models keep the plain base id.
+    neuralTts?.let { engine ->
+      val speakers = engine.numSpeakers().coerceAtLeast(1)
+      if (speakers <= 1) {
+        options.add(
+          VoiceOption(
+            id = neuralVoiceId,
+            label = "신경망 음성 (KSS)",
+            subtitle = "고품질·기기 독립",
+            isNeural = true,
+          )
         )
-      )
+      } else {
+        for (sid in 0 until speakers) {
+          options.add(
+            VoiceOption(
+              id = "$neuralVoiceId#$sid",
+              label = "KSS 화자 ${sid + 1}",
+              subtitle = "고품질·기기 독립",
+              isNeural = true,
+            )
+          )
+        }
+      }
     }
-    if (meloTts != null) {
-      options.add(
-        VoiceOption(
-          id = meloVoiceId,
-          label = "MeloTTS (ko)",
-          subtitle = "자연스러운 한국어",
-          isNeural = true,
+    meloTts?.let { engine ->
+      val speakers = engine.numSpeakers().coerceAtLeast(1)
+      if (speakers <= 1) {
+        options.add(
+          VoiceOption(
+            id = meloVoiceId,
+            label = "MeloTTS (ko)",
+            subtitle = "자연스러운 한국어",
+            isNeural = true,
+          )
         )
-      )
+      } else {
+        for (sid in 0 until speakers) {
+          options.add(
+            VoiceOption(
+              id = "$meloVoiceId#$sid",
+              label = "MeloTTS 화자 ${sid + 1}",
+              subtitle = "자연스러운 한국어",
+              isNeural = true,
+            )
+          )
+        }
+      }
     }
     var index = 1
     for ((id, voice) in systemVoicesById) {
@@ -1312,6 +1343,20 @@ constructor(
 
   // region Text to speech (TTS)
 
+  // Resolves the selected voice id to a neural engine + speaker id (sid), or null engine for the
+  // system voice. Voice ids may carry a speaker suffix, e.g. "neural:melo#3".
+  private fun resolveNeuralVoice(selectedId: String): Pair<OfflineTts?, Int> {
+    val base = selectedId.substringBefore('#')
+    val sid = selectedId.substringAfter('#', "").toIntOrNull() ?: 0
+    val melo = meloTts
+    val kss = neuralTts
+    return when {
+      melo != null && base == meloVoiceId -> melo to sid
+      kss != null && (base == neuralVoiceId || selectedId.isEmpty()) -> kss to sid
+      else -> null to 0
+    }
+  }
+
   private fun speak(text: String) {
     // Strip emoji/symbols so they aren't read aloud; skip if nothing speakable remains.
     val spoken = sanitizeForSpeech(text)
@@ -1321,24 +1366,22 @@ constructor(
     // Use whichever voice the user selected. A neural voice is used only when it is both selected
     // and loaded; otherwise we speak with the system engine (which already has the chosen system
     // voice applied via selectVoice/rebuildVoiceOptions).
-    val selectedId = _uiState.value.selectedVoiceId
-    val melo = meloTts
-    val kss = neuralTts
-    if (melo != null && selectedId == meloVoiceId) {
-      speakNeural(melo, spoken)
-    } else if (kss != null && (selectedId == neuralVoiceId || selectedId.isEmpty())) {
-      speakNeural(kss, spoken)
+    val (engine, sid) = resolveNeuralVoice(_uiState.value.selectedVoiceId)
+    if (engine != null) {
+      speakNeural(engine, spoken, sid)
     } else {
       val system = tts ?: return
       system.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, ASSISTANT_UTTERANCE_ID)
     }
   }
 
-  private fun speakNeural(engine: OfflineTts, text: String) {
+  private fun speakNeural(engine: OfflineTts, text: String, sid: Int) {
+    val safeSid = sid.coerceIn(0, (engine.numSpeakers() - 1).coerceAtLeast(0))
     viewModelScope.launch {
       _uiState.update { it.copy(isSpeaking = true) }
       try {
-        val audio = withContext(Dispatchers.Default) { engine.generate(text = text, sid = 0, speed = 1.0f) }
+        val audio =
+          withContext(Dispatchers.Default) { engine.generate(text = text, sid = safeSid, speed = 1.0f) }
         audioPlayer.play(samples = audio.samples, sampleRate = audio.sampleRate)
       } catch (e: Throwable) {
         Log.w(TAG, "Neural TTS synthesis failed", e)
@@ -1442,19 +1485,14 @@ constructor(
     if (spoken.isBlank()) {
       return
     }
-    val selectedId = _uiState.value.selectedVoiceId
-    val melo = meloTts
-    val kss = neuralTts
-    val engine =
-      when {
-        melo != null && selectedId == meloVoiceId -> melo
-        kss != null && (selectedId == neuralVoiceId || selectedId.isEmpty()) -> kss
-        else -> null
-      }
+    val (engine, sid) = resolveNeuralVoice(_uiState.value.selectedVoiceId)
     if (engine != null) {
+      val safeSid = sid.coerceIn(0, (engine.numSpeakers() - 1).coerceAtLeast(0))
       try {
         val audio =
-          withContext(Dispatchers.Default) { engine.generate(text = spoken, sid = 0, speed = 1.0f) }
+          withContext(Dispatchers.Default) {
+            engine.generate(text = spoken, sid = safeSid, speed = 1.0f)
+          }
         audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
       } catch (e: Throwable) {
         if (e !is kotlinx.coroutines.CancellationException) {
