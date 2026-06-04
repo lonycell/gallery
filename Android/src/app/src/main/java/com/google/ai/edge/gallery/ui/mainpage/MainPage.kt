@@ -30,8 +30,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,18 +50,21 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -405,7 +410,12 @@ private fun VoiceChatContent(
         when {
           modelReady && uiState.messages.isEmpty() ->
             GreetingHint(characterName = selectedCharacter.name)
-          modelReady -> Transcript(messages = uiState.messages, avatarRes = selectedCharacter.imageRes)
+          modelReady ->
+            Transcript(
+              messages = uiState.messages,
+              avatarRes = selectedCharacter.imageRes,
+              onDeleteBefore = { index -> viewModel.deleteMessagesBefore(index) },
+            )
           // Downloaded but still loading — don't nag the user to open settings.
           modelDownloaded -> PreparingHint(characterName = selectedCharacter.name)
           else -> NotReadyHint(onOpenSettings = onOpenSettings)
@@ -570,7 +580,11 @@ private fun GreetingHint(characterName: String) {
 }
 
 @Composable
-private fun Transcript(messages: List<ChatMessage>, avatarRes: Int) {
+private fun Transcript(
+  messages: List<ChatMessage>,
+  avatarRes: Int,
+  onDeleteBefore: (Int) -> Unit,
+) {
   val listState = rememberLazyListState()
   // Keep the latest message in view as it streams in.
   LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
@@ -584,15 +598,30 @@ private fun Transcript(messages: List<ChatMessage>, avatarRes: Int) {
     verticalArrangement = Arrangement.spacedBy(10.dp),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
   ) {
-    items(messages) { message -> VoiceChatBubble(message, avatarRes) }
+    itemsIndexed(messages) { index, message ->
+      VoiceChatBubble(
+        message = message,
+        avatarRes = avatarRes,
+        canDeleteBefore = index > 0,
+        onDeleteBefore = { onDeleteBefore(index) },
+      )
+    }
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun VoiceChatBubble(message: ChatMessage, avatarRes: Int) {
+private fun VoiceChatBubble(
+  message: ChatMessage,
+  avatarRes: Int,
+  canDeleteBefore: Boolean,
+  onDeleteBefore: () -> Unit,
+) {
   val isUser = message.role == ChatMessage.Role.USER
   val text = message.text.ifEmpty { if (message.isStreaming) "…" else "" }
   if (text.isEmpty()) return
+
+  var menuOpen by remember { mutableStateOf(false) }
 
   Row(
     modifier = Modifier.fillMaxWidth(),
@@ -623,7 +652,12 @@ private fun VoiceChatBubble(message: ChatMessage, avatarRes: Int) {
       } else {
         Modifier.clip(shape).background(Color.White.copy(alpha = 0.14f))
       }
-    Box(modifier = Modifier.widthIn(max = 280.dp).then(bubbleModifier)) {
+    Box(
+      modifier =
+        Modifier.widthIn(max = 280.dp)
+          .then(bubbleModifier)
+          .combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
+    ) {
       Text(
         text = text,
         color = Color.White,
@@ -631,6 +665,18 @@ private fun VoiceChatBubble(message: ChatMessage, avatarRes: Int) {
         lineHeight = 21.sp,
         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
       )
+      // Long-press menu. More actions can be added here later.
+      DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        DropdownMenuItem(
+          text = { Text("이전 대화 삭제") },
+          enabled = canDeleteBefore,
+          leadingIcon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null) },
+          onClick = {
+            menuOpen = false
+            onDeleteBefore()
+          },
+        )
+      }
     }
   }
 }

@@ -653,6 +653,21 @@ constructor(
     }
   }
 
+  /**
+   * Deletes every message before [index] (keeping the message at [index] and everything after), then
+   * persists the trimmed history. Used by the chat bubble's "delete earlier messages" action.
+   */
+  fun deleteMessagesBefore(index: Int) {
+    val current = _uiState.value.messages
+    if (index <= 0 || index >= current.size) {
+      return
+    }
+    val trimmed = current.subList(index, current.size).toList()
+    _uiState.update { it.copy(messages = trimmed) }
+    syncActiveMessages()
+    persistActive()
+  }
+
   /** Persists [messages] for [conversationId] to disk off the main thread. */
   private fun persist(conversationId: String, messages: List<ChatMessage>) {
     viewModelScope.launch(Dispatchers.IO) { chatHistoryStore.save(conversationId, messages) }
