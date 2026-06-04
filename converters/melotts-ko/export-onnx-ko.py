@@ -267,15 +267,31 @@ def main() -> None:
         default=17,
         help="ONNX opset version (default 17 — the max torch 2.3.1 supports).",
     )
+    parser.add_argument(
+        "--ckpt",
+        default=None,
+        help="path to a fine-tuned MeloTTS checkpoint (G_*.pth). If omitted, the official "
+        "single-speaker Korean checkpoint is downloaded.",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="path to the config.json that matches --ckpt (carries spk2id / n_speakers). "
+        "Required when --ckpt is a multi-speaker fine-tune.",
+    )
     args = parser.parse_args()
 
     # 1) Lexicon first so a failure here doesn't waste the (slower) model load.
     generate_lexicon(args.extra_words)
 
-    # 2) Load the Korean checkpoint. MeloTTS downloads it from Hugging Face
-    #    (myshell-ai/MeloTTS-Korean) on first use; CPU is fine.
-    print("[model] loading TTS(language='KR') (downloads from Hugging Face on first run)...")
-    model = TTS(language=LANGUAGE, device="cpu")
+    # 2) Load the model. Either our fine-tuned multi-speaker checkpoint (--ckpt/--config) or, by
+    #    default, the official single-speaker Korean checkpoint from Hugging Face.
+    if args.ckpt:
+        print(f"[model] loading fine-tuned checkpoint: {args.ckpt}")
+        model = TTS(language=LANGUAGE, device="cpu", config_path=args.config, ckpt_path=args.ckpt)
+    else:
+        print("[model] loading TTS(language='KR') (downloads from Hugging Face on first run)...")
+        model = TTS(language=LANGUAGE, device="cpu")
     generate_tokens(model.hps["symbols"])
 
     # For multi-speaker models, emit friendly voice labels the app can show in its speaker picker.

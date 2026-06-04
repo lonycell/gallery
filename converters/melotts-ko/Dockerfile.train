@@ -1,0 +1,40 @@
+# GPU training image for fine-tuning MeloTTS (Korean, multi-speaker) on an NVIDIA GPU.
+#
+# Unlike Dockerfile (CPU, inference/conversion only), this installs CUDA-enabled PyTorch so
+# `train.py` runs on the RTX 3070. The torch wheels bundle their own CUDA/cuDNN, so a plain
+# python base + `--gpus all` (host driver) is enough — no CUDA base image needed.
+#
+# Build:  docker build -f Dockerfile.train -t melotts-ko-train .
+# Run:    docker run --rm --gpus all -v V:\data-ko\run:/work/run melotts-ko-train <cmd>
+FROM python:3.10-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git build-essential libsndfile1 ffmpeg ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# CUDA-enabled torch (cu121 works with driver 560.x / RTX 3070). Pinned to match the converter's
+# 2.3.1 so exported graphs stay consistent.
+RUN pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+
+# MeloTTS from source + training extras (tensorboard for logs; cython for monotonic_align).
+# matplotlib<3.8: MeloTTS training plots mel specs via canvas.tostring_rgb(), removed in 3.8+.
+RUN pip install cython tensorboard "matplotlib<3.8" && \
+    git clone --depth 1 https://github.com/myshell-ai/MeloTTS /opt/MeloTTS && \
+    pip install /opt/MeloTTS && \
+    python -m unidic download && \
+    pip install g2pkk python-mecab-ko
+# VITS needs the monotonic_align CUDA/cython extension for TRAINING (not needed for inference).
+RUN cd /opt/MeloTTS/melo/monotonic_align && \
+    (python setup.py build_ext --inplace || mkdir -p monotonic_align)
+
+# Converter scripts (export-onnx-ko.py etc.) are handy in the same image for the final ONNX step.
+COPY export-onnx-ko.py test-onnx-ko.py show-info.py package.py /work/
+
+# No ENTRYPOINT: we invoke specific commands (preprocess / train / export) via `docker run`.
