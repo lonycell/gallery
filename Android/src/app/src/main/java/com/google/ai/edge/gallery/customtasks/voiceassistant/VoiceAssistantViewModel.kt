@@ -62,7 +62,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -209,6 +211,11 @@ constructor(
   // active conversation, and every message mutation is written back to this map.
   private val messagesByConversation = mutableMapOf<String, List<ChatMessage>>()
   private var activeConversationId: String = ""
+
+  // One-shot emotion cues (emoji in a reply) for the screen to animate instead of speaking them.
+  private val _emotionCues = MutableSharedFlow<EmotionCue>(extraBufferCapacity = 8)
+  val emotionCues = _emotionCues.asSharedFlow()
+  private var emotionCueSeq = 0L
 
   private var topicPrompt: TopicPrompt? = null
   // The Voice Assistant defaults to Korean for both speech recognition and synthesis. A topic can
@@ -1190,6 +1197,11 @@ constructor(
               } else if (full.isNotEmpty()) {
                 speak(full)
               }
+              // Play a visual emotion effect for any emoji in the reply (they're not spoken).
+              val emojis = extractEmojis(builder.toString())
+              if (emojis.isNotEmpty()) {
+                _emotionCues.tryEmit(EmotionCue(emojis = emojis.distinct(), id = emotionCueSeq++))
+              }
               // Persist the completed turn so it survives character switches and app restarts.
               persistActive()
             }
@@ -1236,6 +1248,11 @@ constructor(
   // region Text to speech (TTS)
 
   private fun speak(text: String) {
+    // Strip emoji/symbols so they aren't read aloud; skip if nothing speakable remains.
+    val spoken = sanitizeForSpeech(text)
+    if (spoken.isBlank()) {
+      return
+    }
     // Use whichever voice the user selected. A neural voice is used only when it is both selected
     // and loaded; otherwise we speak with the system engine (which already has the chosen system
     // voice applied via selectVoice/rebuildVoiceOptions).
@@ -1243,12 +1260,12 @@ constructor(
     val melo = meloTts
     val kss = neuralTts
     if (melo != null && selectedId == meloVoiceId) {
-      speakNeural(melo, text)
+      speakNeural(melo, spoken)
     } else if (kss != null && (selectedId == neuralVoiceId || selectedId.isEmpty())) {
-      speakNeural(kss, text)
+      speakNeural(kss, spoken)
     } else {
       val system = tts ?: return
-      system.speak(text, TextToSpeech.QUEUE_FLUSH, null, ASSISTANT_UTTERANCE_ID)
+      system.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, ASSISTANT_UTTERANCE_ID)
     }
   }
 
@@ -1355,6 +1372,11 @@ constructor(
 
   /** Speaks one [text] segment and suspends until it has finished playing. */
   private suspend fun speakSegmentToCompletion(text: String, flush: Boolean) {
+    // Strip emoji/symbols so they aren't read aloud; skip a segment that becomes empty.
+    val spoken = sanitizeForSpeech(text)
+    if (spoken.isBlank()) {
+      return
+    }
     val selectedId = _uiState.value.selectedVoiceId
     val melo = meloTts
     val kss = neuralTts
@@ -1367,7 +1389,7 @@ constructor(
     if (engine != null) {
       try {
         val audio =
-          withContext(Dispatchers.Default) { engine.generate(text = text, sid = 0, speed = 1.0f) }
+          withContext(Dispatchers.Default) { engine.generate(text = spoken, sid = 0, speed = 1.0f) }
         audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
       } catch (e: Throwable) {
         if (e !is kotlinx.coroutines.CancellationException) {
@@ -1382,7 +1404,7 @@ constructor(
       val done = CompletableDeferred<Unit>()
       utteranceCompletions[id] = done
       system.speak(
-        text,
+        spoken,
         if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
         null,
         id,

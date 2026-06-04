@@ -95,6 +95,7 @@ import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDia
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessage
+import com.google.ai.edge.gallery.customtasks.voiceassistant.EmotionCue
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantUiState
@@ -334,6 +335,10 @@ private fun VoiceChatContent(
     }
   }
 
+  // Latest emotion cue (emoji in a reply) to animate as a floating effect.
+  var emotionCue by remember { mutableStateOf<EmotionCue?>(null) }
+  LaunchedEffect(Unit) { viewModel.emotionCues.collect { emotionCue = it } }
+
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
     // Hero: the selected character, full-bleed like the subscription page (portrait photos), with a
     // gradient that's light over the face and fades smoothly into the dark chat area below.
@@ -446,6 +451,9 @@ private fun VoiceChatContent(
         modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp, top = 4.dp),
       )
     }
+
+    // Floating emoji emotion effect, on top of everything (non-interactive).
+    EmotionOverlay(cue = emotionCue)
   }
 }
 
