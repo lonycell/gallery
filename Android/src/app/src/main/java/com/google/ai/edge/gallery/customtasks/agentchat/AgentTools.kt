@@ -61,6 +61,15 @@ open class AgentTools() : ToolSet {
   var resultImageToShow: CallJsSkillResultImage? = null
   var resultWebviewToShow: CallJsSkillResultWebview? = null
 
+  /**
+   * Posts a tool-progress update onto the action channel (non-suspending). Built-in tools (e.g. web
+   * search) can call this to surface a "tool in use" status in the UI, reusing the same channel that
+   * skills/MCP report through.
+   */
+  fun postProgress(label: String, inProgress: Boolean) {
+    _actionChannel.trySend(SkillProgressAgentAction(label = label, inProgress = inProgress))
+  }
+
   /** Loads skill. */
   @Tool(description = "Loads a skill.")
   fun loadSkill(

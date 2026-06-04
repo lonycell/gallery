@@ -455,6 +455,15 @@ private fun VoiceChatContent(
         )
       }
 
+      // Tool-use status (skills / MCP / web search), animated and separate from the message.
+      AnimatedVisibility(
+        visible = uiState.toolActivity.isNotEmpty(),
+        enter = fadeIn(),
+        exit = fadeOut(),
+      ) {
+        ToolActivityChip(label = uiState.toolActivity)
+      }
+
       // Input bar: text field + the merged mic-orb.
       InputBar(
         enabled = modelReady,
@@ -483,6 +492,7 @@ private fun statusLabel(
   when {
     !modelReady && modelDownloaded -> "모델을 불러오는 중이에요…"
     !modelReady -> "설정에서 AI 모델을 준비해 주세요"
+    state.toolActivity.isNotEmpty() -> state.toolActivity
     state.isListening -> "듣고 있어요…"
     state.isThinking -> "생각 중…"
     state.isSpeaking -> "말하는 중…"
@@ -632,8 +642,10 @@ private fun VoiceChatBubble(
   onNewChat: () -> Unit,
 ) {
   val isUser = message.role == ChatMessage.Role.USER
-  val text = message.text.ifEmpty { if (message.isStreaming) "…" else "" }
-  if (text.isEmpty()) return
+  // An assistant reply that hasn't produced any text yet: show an animated typing indicator.
+  val isTyping = !isUser && message.isStreaming && message.text.isBlank()
+  val text = message.text
+  if (text.isBlank() && !isTyping) return
 
   var menuOpen by remember { mutableStateOf(false) }
   val clipboard = LocalClipboardManager.current
@@ -674,13 +686,17 @@ private fun VoiceChatBubble(
           .then(bubbleModifier)
           .combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
     ) {
-      Text(
-        text = text,
-        color = Color.White,
-        fontSize = 15.sp,
-        lineHeight = 21.sp,
-        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-      )
+      if (isTyping) {
+        TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
+      } else {
+        Text(
+          text = text,
+          color = Color.White,
+          fontSize = 15.sp,
+          lineHeight = 21.sp,
+          modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+      }
       // Long-press menu. More actions can be added here later.
       DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
         DropdownMenuItem(
@@ -720,6 +736,60 @@ private fun VoiceChatBubble(
           },
         )
       }
+    }
+  }
+}
+
+/** Animated three-dot "typing" indicator shown while the assistant is forming its reply. */
+@Composable
+private fun TypingDots(modifier: Modifier = Modifier) {
+  val transition = rememberInfiniteTransition(label = "typing")
+  Row(
+    modifier = modifier,
+    horizontalArrangement = Arrangement.spacedBy(5.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    repeat(3) { i ->
+      val alpha by
+        transition.animateFloat(
+          initialValue = 0.3f,
+          targetValue = 1f,
+          animationSpec =
+            infiniteRepeatable(
+              animation = tween(durationMillis = 600, delayMillis = i * 160, easing = LinearEasing),
+              repeatMode = RepeatMode.Reverse,
+            ),
+          label = "dot$i",
+        )
+      Box(
+        modifier =
+          Modifier.size(7.dp).clip(CircleShape).background(Color.White.copy(alpha = alpha))
+      )
+    }
+  }
+}
+
+/** An animated status chip shown while a tool/skill/search is running (e.g. "인터넷 검색 중…"). */
+@Composable
+private fun ToolActivityChip(label: String, modifier: Modifier = Modifier) {
+  Row(
+    modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+    horizontalArrangement = Arrangement.Center,
+  ) {
+    Row(
+      modifier =
+        Modifier.clip(RoundedCornerShape(50))
+          .background(Color.White.copy(alpha = 0.16f))
+          .padding(horizontal = 14.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      CircularProgressIndicator(
+        modifier = Modifier.size(14.dp),
+        strokeWidth = 2.dp,
+        color = ListeningColor,
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(label, color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp)
     }
   }
 }

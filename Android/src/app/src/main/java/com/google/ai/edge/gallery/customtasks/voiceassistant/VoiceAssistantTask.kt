@@ -24,6 +24,7 @@ import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.kakao.KakaoShareTools
+import com.google.ai.edge.gallery.customtasks.websearch.WebSearchTools
 import com.google.ai.edge.gallery.customtasks.speech.SpeechCategory
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssistantPromptSource
 import com.google.ai.edge.gallery.data.Model
@@ -140,6 +141,12 @@ class VoiceAssistantTask(
               "호출하세요. 보내기 전에 수신자와 메시지 내용을 사용자에게 요약해 확인받으세요. " +
               "실제 전송은 카카오톡 화면에서 사용자가 수신자를 고르고 확정합니다."
           )
+          append("\n\n")
+          append(
+            "최신 뉴스·오늘의 사실·시세·일정처럼 시의성이 있거나 당신이 확실히 알지 못하는 정보가 " +
+              "필요하면 `searchWeb` 도구로 인터넷을 검색하세요. 검색 결과를 바탕으로 핵심만 간결히 " +
+              "정리해 답하고, 정보가 불확실하거나 최신이 아닐 수 있으면 그 점을 짧게 덧붙이세요."
+          )
           if (hasSkills) {
             if (isNotEmpty()) append("\n\n")
             append(
@@ -163,6 +170,8 @@ class VoiceAssistantTask(
       // calling is therefore always enabled.
       val toolSets = mutableListOf<ToolProvider>()
       toolSets.add(tool(KakaoShareTools(context = context.applicationContext)))
+      // Built-in internet search is always available; it reports progress via the shared agentTools.
+      toolSets.add(tool(WebSearchTools(agentTools = agentTools)))
       if (hasTools || hasSkills) {
         toolSets.add(tool(agentTools))
       }
