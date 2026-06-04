@@ -18,6 +18,7 @@ package com.google.ai.edge.gallery.ui.mainpage
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -58,7 +59,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
@@ -84,8 +88,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -415,6 +421,8 @@ private fun VoiceChatContent(
               messages = uiState.messages,
               avatarRes = selectedCharacter.imageRes,
               onDeleteBefore = { index -> viewModel.deleteMessagesBefore(index) },
+              onRegenerate = { index -> viewModel.regenerate(index) },
+              onNewChat = { viewModel.clearConversation() },
             )
           // Downloaded but still loading — don't nag the user to open settings.
           modelDownloaded -> PreparingHint(characterName = selectedCharacter.name)
@@ -584,6 +592,8 @@ private fun Transcript(
   messages: List<ChatMessage>,
   avatarRes: Int,
   onDeleteBefore: (Int) -> Unit,
+  onRegenerate: (Int) -> Unit,
+  onNewChat: () -> Unit,
 ) {
   val listState = rememberLazyListState()
   // Keep the latest message in view as it streams in.
@@ -604,6 +614,8 @@ private fun Transcript(
         avatarRes = avatarRes,
         canDeleteBefore = index > 0,
         onDeleteBefore = { onDeleteBefore(index) },
+        onRegenerate = { onRegenerate(index) },
+        onNewChat = onNewChat,
       )
     }
   }
@@ -616,12 +628,16 @@ private fun VoiceChatBubble(
   avatarRes: Int,
   canDeleteBefore: Boolean,
   onDeleteBefore: () -> Unit,
+  onRegenerate: () -> Unit,
+  onNewChat: () -> Unit,
 ) {
   val isUser = message.role == ChatMessage.Role.USER
   val text = message.text.ifEmpty { if (message.isStreaming) "…" else "" }
   if (text.isEmpty()) return
 
   var menuOpen by remember { mutableStateOf(false) }
+  val clipboard = LocalClipboardManager.current
+  val context = LocalContext.current
 
   Row(
     modifier = Modifier.fillMaxWidth(),
@@ -668,12 +684,39 @@ private fun VoiceChatBubble(
       // Long-press menu. More actions can be added here later.
       DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
         DropdownMenuItem(
+          text = { Text("메시지 복사") },
+          leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null) },
+          onClick = {
+            menuOpen = false
+            clipboard.setText(AnnotatedString(message.text))
+            Toast.makeText(context, "복사했어요", Toast.LENGTH_SHORT).show()
+          },
+        )
+        if (!isUser) {
+          DropdownMenuItem(
+            text = { Text("다시 답하기") },
+            leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
+            onClick = {
+              menuOpen = false
+              onRegenerate()
+            },
+          )
+        }
+        DropdownMenuItem(
           text = { Text("이전 대화 삭제") },
           enabled = canDeleteBefore,
           leadingIcon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null) },
           onClick = {
             menuOpen = false
             onDeleteBefore()
+          },
+        )
+        DropdownMenuItem(
+          text = { Text("새 대화 시작") },
+          leadingIcon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
+          onClick = {
+            menuOpen = false
+            onNewChat()
           },
         )
       }

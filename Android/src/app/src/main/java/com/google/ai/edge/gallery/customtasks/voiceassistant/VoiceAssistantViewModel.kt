@@ -668,6 +668,56 @@ constructor(
     persistActive()
   }
 
+  /**
+   * Regenerates the assistant reply at [assistantIndex]: drops that reply (and anything after it) and
+   * re-runs inference on the user message that prompted it.
+   */
+  fun regenerate(assistantIndex: Int) {
+    if (_uiState.value.isThinking) {
+      return
+    }
+    val model = pendingModel ?: return
+    val messages = _uiState.value.messages
+    if (assistantIndex !in messages.indices) {
+      return
+    }
+    if (messages[assistantIndex].role != ChatMessage.Role.ASSISTANT) {
+      return
+    }
+    val userIndex =
+      (assistantIndex - 1 downTo 0).firstOrNull {
+        messages[it].role == ChatMessage.Role.USER
+      } ?: return
+    val userText = messages[userIndex].text
+    if (userText.isBlank()) {
+      return
+    }
+    stopSpeaking()
+    // Keep up to and including the prompting user message; replace the reply with a fresh one.
+    val kept = messages.subList(0, userIndex + 1).toList()
+    _uiState.update {
+      it.copy(
+        messages =
+          kept + ChatMessage(role = ChatMessage.Role.ASSISTANT, text = "", isStreaming = true),
+        isThinking = true,
+        error = "",
+      )
+    }
+    syncActiveMessages()
+    runLlm(model, userText)
+  }
+
+  /** Clears the whole active conversation and starts fresh. */
+  fun clearConversation() {
+    stopListening()
+    stopSpeaking()
+    _uiState.update {
+      it.copy(messages = emptyList(), isThinking = false, partialTranscript = "", error = "")
+    }
+    syncActiveMessages()
+    persistActive()
+  }
+
   /** Persists [messages] for [conversationId] to disk off the main thread. */
   private fun persist(conversationId: String, messages: List<ChatMessage>) {
     viewModelScope.launch(Dispatchers.IO) { chatHistoryStore.save(conversationId, messages) }
