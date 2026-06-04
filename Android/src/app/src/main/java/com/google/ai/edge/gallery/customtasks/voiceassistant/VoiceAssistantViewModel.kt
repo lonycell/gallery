@@ -95,6 +95,8 @@ data class VoiceOption(
   val label: String,
   val subtitle: String = "",
   val isNeural: Boolean = false,
+  /** A cloud (commercial API) voice rather than an on-device one. */
+  val isCloud: Boolean = false,
 )
 
 /**
@@ -201,6 +203,7 @@ constructor(
   private val promptSource: VoiceAssistantPromptSource,
   private val entryParams: VoiceAssistantEntryParams,
   private val chatHistoryStore: ChatHistoryStore,
+  private val cloudTtsService: com.google.ai.edge.gallery.customtasks.speech.CloudTtsService,
 ) : ViewModel(), RecognitionListener {
 
   private val _uiState = MutableStateFlow(VoiceAssistantUiState())
@@ -443,14 +446,21 @@ constructor(
       index++
     }
 
-    // Pick a default selection if none is set or the current one disappeared. Prefer a neural voice
-    // (whichever loaded) over a system voice.
+    // Cloud (commercial API) voices — always available (configured by parameters, not downloaded).
+    // Added last and never auto-selected so a missing/sample credential can't break the default.
+    for ((id, label) in cloudTtsService.voiceOptions()) {
+      options.add(VoiceOption(id = id, label = label, isCloud = true))
+    }
+
+    // Pick a default selection if none is set or the current one disappeared. Prefer an on-device
+    // neural voice, then any other on-device (system) voice — never a cloud voice by default.
     val current = _uiState.value.selectedVoiceId
     val stillValid = options.any { it.id == current }
     val selected =
       when {
         stillValid -> current
-        options.any { it.isNeural } -> options.first { it.isNeural }.id
+        options.any { it.isNeural && !it.isCloud } -> options.first { it.isNeural && !it.isCloud }.id
+        options.any { !it.isCloud } -> options.first { !it.isCloud }.id
         options.isNotEmpty() -> options.first().id
         else -> ""
       }
@@ -1363,15 +1373,40 @@ constructor(
     if (spoken.isBlank()) {
       return
     }
+    val selectedId = _uiState.value.selectedVoiceId
+    // Cloud (commercial API) voice.
+    if (cloudTtsService.isCloudVoice(selectedId)) {
+      speakCloud(selectedId, spoken)
+      return
+    }
     // Use whichever voice the user selected. A neural voice is used only when it is both selected
     // and loaded; otherwise we speak with the system engine (which already has the chosen system
     // voice applied via selectVoice/rebuildVoiceOptions).
-    val (engine, sid) = resolveNeuralVoice(_uiState.value.selectedVoiceId)
+    val (engine, sid) = resolveNeuralVoice(selectedId)
     if (engine != null) {
       speakNeural(engine, spoken, sid)
     } else {
       val system = tts ?: return
       system.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, ASSISTANT_UTTERANCE_ID)
+    }
+  }
+
+  /** Synthesizes [text] via the configured cloud TTS API and plays it through [audioPlayer]. */
+  private fun speakCloud(voiceId: String, text: String) {
+    viewModelScope.launch {
+      _uiState.update { it.copy(isSpeaking = true) }
+      try {
+        val audio = withContext(Dispatchers.IO) { cloudTtsService.synthesize(voiceId, text) }
+        if (audio != null) {
+          audioPlayer.play(samples = audio.samples, sampleRate = audio.sampleRate)
+        } else {
+          _uiState.update { it.copy(error = "음성 API 호출에 실패했어요. 설정의 인증 정보를 확인해주세요.") }
+        }
+      } catch (e: Throwable) {
+        Log.w(TAG, "Cloud TTS playback failed", e)
+      } finally {
+        _uiState.update { it.copy(isSpeaking = false) }
+      }
     }
   }
 
@@ -1485,7 +1520,24 @@ constructor(
     if (spoken.isBlank()) {
       return
     }
-    val (engine, sid) = resolveNeuralVoice(_uiState.value.selectedVoiceId)
+    val selectedId = _uiState.value.selectedVoiceId
+    // Cloud (commercial API) voice: synthesize the segment, then play it to completion.
+    if (cloudTtsService.isCloudVoice(selectedId)) {
+      try {
+        val audio = withContext(Dispatchers.IO) { cloudTtsService.synthesize(selectedId, spoken) }
+        if (audio != null) {
+          audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+        }
+      } catch (e: Throwable) {
+        if (e !is kotlinx.coroutines.CancellationException) {
+          Log.w(TAG, "Streaming cloud synthesis failed", e)
+        } else {
+          throw e
+        }
+      }
+      return
+    }
+    val (engine, sid) = resolveNeuralVoice(selectedId)
     if (engine != null) {
       val safeSid = sid.coerceIn(0, (engine.numSpeakers() - 1).coerceAtLeast(0))
       try {

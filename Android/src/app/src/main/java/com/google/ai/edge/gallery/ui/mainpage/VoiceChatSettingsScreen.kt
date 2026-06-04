@@ -248,7 +248,7 @@ fun VoiceChatSettingsScreen(
               ChoiceChip(
                 label = voice.label,
                 selected = voice.id == charState.defaultVoiceId,
-                neural = voice.isNeural,
+                neural = voice.isNeural || voice.isCloud,
               ) {
                 characterViewModel.setDefaultVoice(voice.id)
               }

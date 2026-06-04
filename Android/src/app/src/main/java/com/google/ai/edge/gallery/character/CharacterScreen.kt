@@ -373,7 +373,7 @@ private fun CharacterDetail(
                     .padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
               ) {
-                if (voice.isNeural) {
+                if (voice.isNeural || voice.isCloud) {
                   Icon(
                     Icons.Rounded.AutoAwesome,
                     contentDescription = null,
