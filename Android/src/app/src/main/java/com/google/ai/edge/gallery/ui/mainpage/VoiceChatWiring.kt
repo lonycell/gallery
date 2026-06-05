@@ -63,7 +63,7 @@ fun VoiceChatPlumbing(
   agentTools.skillManagerViewModel = skillManagerViewModel
   agentTools.mcpManagerViewModel = mcpManagerViewModel
   agentTools.taskId = task.id
-  LaunchedEffect(Unit) { viewModel.attachAgentTools(agentTools) }
+  LaunchedEffect(agentTools) { viewModel.setAgentTools(agentTools) }
 
   // Keep the count of connected MCP tools / selected skills in sync (both enable function calling).
   val mcpUiState by mcpManagerViewModel.uiState.collectAsState()

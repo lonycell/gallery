@@ -75,7 +75,7 @@ class ChatHistoryStore @Inject constructor(@ApplicationContext private val conte
     try {
       val arr = JSONArray()
       for (message in messages.takeLast(MAX_STORED_MESSAGES)) {
-        if (message.text.isBlank()) continue
+        if (message.kind != ChatMessageKind.TEXT || message.text.isBlank()) continue
         arr.put(
           JSONObject()
             .put("r", if (message.role == ChatMessage.Role.USER) "u" else "a")

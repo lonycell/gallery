@@ -20,7 +20,6 @@ import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import android.webkit.ConsoleMessage
-import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -785,25 +784,3 @@ private fun resetSessionWithCurrentSkillsAndMcps(
   )
 }
 
-class ChatWebViewJavascriptInterface {
-  var onResultListener: ((String) -> Unit)? = null
-
-  @JavascriptInterface
-  fun onResultReady(result: String) {
-    onResultListener?.invoke(result)
-  }
-}
-
-class ChatWebViewClient(val context: Context) : BaseGalleryWebViewClient(context = context) {
-  private var onPageLoaded: (() -> Unit)? = null
-
-  fun setPageLoadListener(listener: (() -> Unit)?) {
-    onPageLoaded = listener
-  }
-
-  override fun onPageFinished(view: WebView?, url: String?) {
-    super.onPageFinished(view, url)
-    Log.d(TAG, "page loaded")
-    onPageLoaded?.invoke()
-  }
-}

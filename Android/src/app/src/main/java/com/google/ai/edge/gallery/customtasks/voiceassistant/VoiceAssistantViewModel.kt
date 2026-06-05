@@ -28,14 +28,11 @@ import android.speech.tts.Voice
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.ai.edge.gallery.common.AgentAction
-import com.google.ai.edge.gallery.common.AskInfoAgentAction
-import com.google.ai.edge.gallery.common.AskMcpToolCallPermissionAction
-import com.google.ai.edge.gallery.common.CallJsAgentAction
-import com.google.ai.edge.gallery.common.PermissionResult
-import com.google.ai.edge.gallery.common.RequestPermissionAgentAction
 import com.google.ai.edge.gallery.common.SkillProgressAgentAction
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
+import com.google.ai.edge.gallery.customtasks.agentchat.decodeBase64ToBitmap
+import com.google.ai.edge.gallery.ui.common.chat.LogMessage
+import com.google.ai.edge.gallery.ui.common.chat.ProgressPanelItem
 import com.google.ai.edge.gallery.customtasks.speech.AudioPlayer
 import com.google.ai.edge.gallery.customtasks.speech.AudioRecorder
 import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralStt
@@ -108,12 +105,41 @@ private val SENTENCE_TERMINATORS = charArrayOf('.', '!', '?', '…', '。', '！
 // doesn't stall on a long terminator-less passage.
 private const val STREAMING_SOFT_FLUSH_CHARS = 60
 
-/** A single message in the voice conversation. */
-data class ChatMessage(val role: Role, val text: String, val isStreaming: Boolean = false) {
+/** Discriminates items shown in the voice-chat transcript. */
+enum class ChatMessageKind {
+  TEXT,
+  TOOL_PROGRESS,
+  IMAGE,
+  WEBVIEW,
+}
+
+/** Progress panel data for tool/skill execution (mirrors Agent Skills collapsable panel). */
+data class ToolProgressData(
+  val title: String,
+  val inProgress: Boolean,
+  val items: List<ProgressPanelItem> = emptyList(),
+  val logMessages: List<LogMessage> = emptyList(),
+)
+
+/** A single item in the voice conversation transcript. */
+data class ChatMessage(
+  val role: Role = Role.ASSISTANT,
+  val text: String = "",
+  val isStreaming: Boolean = false,
+  val kind: ChatMessageKind = ChatMessageKind.TEXT,
+  val toolProgress: ToolProgressData? = null,
+  val imageBase64: String? = null,
+  val webViewUrl: String? = null,
+  val webViewIframe: Boolean = false,
+  val webViewAspectRatio: Float = 1.333f,
+) {
   enum class Role {
     USER,
     ASSISTANT,
   }
+
+  val isTextMessage: Boolean
+    get() = kind == ChatMessageKind.TEXT
 }
 
 /** A selectable voice for spoken replies (either the neural voice or a system TTS voice). */
@@ -326,11 +352,8 @@ constructor(
   private var loadedSttEngine: SttEngine? = null
   private var loadingStt = false
 
-  // Tool / MCP integration (shared with Agent Skills). Set by the screen via [attachAgentTools].
+  // Tool / MCP integration (shared with Agent Skills). Set by the screen for post-tool UI updates.
   private var agentTools: AgentTools? = null
-  // Pending MCP tool-call permission request awaiting the user's decision (drives a dialog).
-  private val _mcpPermissionRequest = MutableStateFlow<AskMcpToolCallPermissionAction?>(null)
-  val mcpPermissionRequest = _mcpPermissionRequest.asStateFlow()
 
   // Ids used for the neural voice options.
   private val neuralVoiceId = "neural:kss"
@@ -833,8 +856,9 @@ constructor(
     if (activeConversationId.isNotEmpty()) {
       val finalized =
         _uiState.value.messages.map { if (it.isStreaming) it.copy(isStreaming = false) else it }
-      messagesByConversation[activeConversationId] = finalized
-      persist(activeConversationId, finalized)
+      val textOnly = textMessagesOnly(finalized)
+      messagesByConversation[activeConversationId] = textOnly
+      persist(activeConversationId, textOnly)
     }
     activeConversationId = conversationId
     val cached = messagesByConversation[conversationId]
@@ -892,12 +916,15 @@ constructor(
     if (assistantIndex !in messages.indices) {
       return
     }
-    if (messages[assistantIndex].role != ChatMessage.Role.ASSISTANT) {
+    if (
+      messages[assistantIndex].kind != ChatMessageKind.TEXT ||
+        messages[assistantIndex].role != ChatMessage.Role.ASSISTANT
+    ) {
       return
     }
     val userIndex =
       (assistantIndex - 1 downTo 0).firstOrNull {
-        messages[it].role == ChatMessage.Role.USER
+        messages[it].kind == ChatMessageKind.TEXT && messages[it].role == ChatMessage.Role.USER
       } ?: return
     val userText = messages[userIndex].text
     if (userText.isBlank()) {
@@ -982,9 +1009,12 @@ constructor(
   /** Persists the active conversation's current messages to disk. */
   private fun persistActive() {
     if (activeConversationId.isNotEmpty()) {
-      persist(activeConversationId, _uiState.value.messages)
+      persist(activeConversationId, textMessagesOnly(_uiState.value.messages))
     }
   }
+
+  private fun textMessagesOnly(messages: List<ChatMessage>): List<ChatMessage> =
+    messages.filter { it.kind == ChatMessageKind.TEXT }
 
   private var pendingModel: Model? = null
 
@@ -1396,57 +1426,156 @@ constructor(
 
   // region Tools / MCP
 
-  /**
-   * Attaches the shared [AgentTools] (already wired with skill/MCP managers by the screen) and
-   * starts consuming its action channel so MCP tool-call permission prompts and progress are
-   * surfaced. Safe to call repeatedly; only the first call starts the collector.
-   */
-  fun attachAgentTools(tools: AgentTools) {
-    if (agentTools === tools) {
-      return
-    }
+  /** Retains a reference to [AgentTools] for post-generation result handling (images/webviews). */
+  fun setAgentTools(tools: AgentTools) {
     agentTools = tools
-    viewModelScope.launch {
-      for (action in tools.actionChannel) {
-        handleAgentAction(action)
-      }
+  }
+
+  /**
+   * Updates the collapsable tool-progress panel in the transcript (same semantics as Agent Skills).
+   * Also mirrors the current step as [VoiceAssistantUiState.toolActivity] for the status line.
+   */
+  fun onSkillProgressAction(action: SkillProgressAgentAction) {
+    _uiState.update { state ->
+      state.copy(toolActivity = if (action.inProgress) action.label else "")
+    }
+    updateToolProgressPanel(
+      title = action.label,
+      inProgress = action.inProgress,
+      addItemTitle = action.addItemTitle,
+      addItemDescription = action.addItemDescription,
+    )
+  }
+
+  fun addLogToToolProgressPanel(logMessage: LogMessage) {
+    _uiState.update { state ->
+      val messages = state.messages.toMutableList()
+      val index = messages.indexOfLast { it.kind == ChatMessageKind.TOOL_PROGRESS }
+      if (index < 0) return@update state
+      val panel = messages[index].toolProgress ?: return@update state
+      messages[index] =
+        messages[index].copy(
+          toolProgress = panel.copy(logMessages = panel.logMessages + logMessage)
+        )
+      state.copy(messages = messages)
     }
   }
 
-  private fun handleAgentAction(action: AgentAction) {
-    when (action) {
-      is AskMcpToolCallPermissionAction -> {
-        // Surface a permission dialog; the screen completes action.result via [resolveMcpPermission].
-        _mcpPermissionRequest.value = action
-      }
-      is SkillProgressAgentAction -> {
-        // Reflect tool activity as a short status line; clear it when the step finishes.
-        _uiState.update {
-          it.copy(toolActivity = if (action.inProgress) action.label else "")
-        }
-      }
-      // The following actions need a UI surface the voice flow doesn't provide (web view, free-text
-      // input, runtime Android permission). Their `runMcpTool`/skill callers await a result, so we
-      // MUST complete the deferred immediately to avoid hanging the inference; we resolve them as
-      // "unsupported"/denied so the model can move on and tell the user.
-      is CallJsAgentAction -> {
-        action.result.complete(
-          "{\"error\":\"JS skills are not supported in the Voice Assistant\",\"status\":\"failed\"}"
+  private fun updateToolProgressPanel(
+    title: String,
+    inProgress: Boolean,
+    addItemTitle: String,
+    addItemDescription: String,
+  ) {
+    _uiState.update { state ->
+      val messages = state.messages.toMutableList()
+      val createPanel = {
+        ChatMessage(
+          kind = ChatMessageKind.TOOL_PROGRESS,
+          toolProgress =
+            ToolProgressData(
+              title = title,
+              inProgress = inProgress,
+              items =
+                if (addItemTitle.isNotEmpty()) {
+                  listOf(ProgressPanelItem(title = addItemTitle, description = addItemDescription))
+                } else {
+                  emptyList()
+                },
+            ),
         )
       }
-      is AskInfoAgentAction -> action.result.complete("")
-      is RequestPermissionAgentAction -> action.result.complete(false)
-      else -> {
-        // Nothing else is emitted by the tools we expose.
+
+      val lastProgressIndex = messages.indexOfLast { it.kind == ChatMessageKind.TOOL_PROGRESS }
+      val lastUserIndex =
+        messages.indexOfLast { it.kind == ChatMessageKind.TEXT && it.role == ChatMessage.Role.USER }
+
+      if (
+        lastProgressIndex >= 0 &&
+          lastUserIndex >= 0 &&
+          lastUserIndex > lastProgressIndex
+      ) {
+        messages.add(lastUserIndex + 1, createPanel())
+      } else if (lastProgressIndex >= 0) {
+        val existing = messages[lastProgressIndex].toolProgress!!
+        messages[lastProgressIndex] =
+          messages[lastProgressIndex].copy(
+            toolProgress =
+              existing.copy(
+                title = title,
+                inProgress = inProgress,
+                items =
+                  existing.items +
+                    if (addItemTitle.isNotEmpty()) {
+                      listOf(
+                        ProgressPanelItem(title = addItemTitle, description = addItemDescription)
+                      )
+                    } else {
+                      emptyList()
+                    },
+              ),
+          )
+      } else {
+        messages.add(createPanel())
       }
+      state.copy(messages = messages)
     }
   }
 
-  /** Completes a pending MCP tool-call permission request with the user's choice. */
-  fun resolveMcpPermission(result: PermissionResult) {
-    val pending = _mcpPermissionRequest.value ?: return
-    pending.result.complete(result)
-    _mcpPermissionRequest.value = null
+  /** Called when the model emits its first visible token — finalize any in-progress tool step. */
+  fun onAgentToolsFirstToken() {
+    finalizeLastToolProgressPanel()
+  }
+
+  /** Called when generation completes — show tool-produced images/webviews and finalize progress. */
+  fun onAgentToolsResponseDone() {
+    val tools = agentTools ?: return
+    _uiState.update { state ->
+      var messages = state.messages.toMutableList()
+      tools.resultImageToShow?.base64?.let { base64 ->
+        decodeBase64ToBitmap(base64String = base64)?.let {
+          messages.add(ChatMessage(kind = ChatMessageKind.IMAGE, imageBase64 = base64))
+        }
+        tools.resultImageToShow = null
+      }
+      tools.resultWebviewToShow?.let { webview ->
+        messages.add(
+          ChatMessage(
+            kind = ChatMessageKind.WEBVIEW,
+            webViewUrl = webview.url ?: "",
+            webViewIframe = webview.iframe == true,
+            webViewAspectRatio = webview.aspectRatio ?: 1.333f,
+          )
+        )
+        tools.resultWebviewToShow = null
+      }
+      state.copy(messages = messages)
+    }
+    finalizeLastToolProgressPanel()
+  }
+
+  private fun finalizeLastToolProgressPanel() {
+    _uiState.update { state ->
+      val messages = state.messages.toMutableList()
+      val index =
+        messages.indexOfLast {
+          it.kind == ChatMessageKind.TOOL_PROGRESS && it.toolProgress?.inProgress == true
+        }
+      if (index < 0) return@update state
+      val panel = messages[index].toolProgress ?: return@update state
+      val finalizedTitle =
+        when {
+          panel.title.startsWith("Loading") -> panel.title.replace("Loading", "Loaded")
+          panel.title.startsWith("Calling") -> panel.title.replace("Calling", "Called")
+          panel.title.startsWith("Executing") -> panel.title.replace("Executing", "Executed")
+          else -> panel.title
+        }
+      messages[index] =
+        messages[index].copy(
+          toolProgress = panel.copy(title = finalizedTitle, inProgress = false)
+        )
+      state.copy(messages = messages, toolActivity = "")
+    }
   }
 
   /** Updates the count of available MCP tools (drives the "tools available" UI). */
@@ -1499,6 +1628,7 @@ constructor(
 
   private fun runLlm(model: Model, input: String) {
     val builder = StringBuilder()
+    var firstTokenHandled = false
     // The conversation this generation belongs to. If the user switches characters mid-generation,
     // stale results must not leak into the new conversation.
     val convId = activeConversationId
@@ -1524,7 +1654,10 @@ constructor(
             if (streamingSpeech) cancelStreamingSpeech()
             _uiState.update { state ->
               val messages = state.messages.toMutableList()
-              val last = messages.indexOfLast { it.role == ChatMessage.Role.ASSISTANT }
+              val last =
+                messages.indexOfLast {
+                  it.kind == ChatMessageKind.TEXT && it.role == ChatMessage.Role.ASSISTANT
+                }
               if (last >= 0) messages[last] = messages[last].copy(isStreaming = false)
               state.copy(
                 messages = messages,
@@ -1554,6 +1687,10 @@ constructor(
             // Any output (content or thought) counts as progress — keep the watchdog from firing.
             lastOutputAt.set(android.os.SystemClock.elapsedRealtime())
             if (!partialResult.startsWith("<ctrl")) {
+              if (!firstTokenHandled && partialResult.isNotEmpty()) {
+                firstTokenHandled = true
+                onAgentToolsFirstToken()
+              }
               builder.append(partialResult)
               updateStreamingAssistant(builder.toString(), streaming = !done)
               if (streamingSpeech) {
@@ -1564,6 +1701,7 @@ constructor(
             }
             if (done) {
               finishGeneration()
+              onAgentToolsResponseDone()
               val full = builder.toString().trim()
               _uiState.update { it.copy(isThinking = false) }
               if (streamingSpeech) {
@@ -1612,7 +1750,10 @@ constructor(
   private fun updateStreamingAssistant(content: String, streaming: Boolean) {
     _uiState.update { state ->
       val messages = state.messages.toMutableList()
-      val lastIndex = messages.indexOfLast { it.role == ChatMessage.Role.ASSISTANT }
+      val lastIndex =
+        messages.indexOfLast {
+          it.kind == ChatMessageKind.TEXT && it.role == ChatMessage.Role.ASSISTANT
+        }
       if (lastIndex >= 0) {
         messages[lastIndex] = messages[lastIndex].copy(text = content, isStreaming = streaming)
       }

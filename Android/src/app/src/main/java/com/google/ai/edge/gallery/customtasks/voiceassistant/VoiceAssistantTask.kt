@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.runtime.Composable
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
+import com.google.ai.edge.gallery.customtasks.voiceassistant.buildVoiceAssistantSystemInstruction
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.kakao.KakaoShareTools
 import com.google.ai.edge.gallery.customtasks.websearch.WebSearchTools
@@ -30,7 +31,6 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssist
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
-import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.ToolProvider
@@ -120,53 +120,24 @@ class VoiceAssistantTask(
         } catch (e: Exception) {
           ""
         }
-      val skillsPrompt =
+      val selectedSkills =
         try {
           agentTools.skillManagerViewModel.loadSkills()
-          agentTools.skillManagerViewModel.getSelectedSkillsNamesAndDescriptions()
+          agentTools.skillManagerViewModel.getSelectedSkills()
         } catch (e: Exception) {
-          ""
+          emptyList()
         }
       val hasTools = toolsPrompt.isNotEmpty()
-      val hasSkills = skillsPrompt.isNotEmpty()
+      val hasSkills = selectedSkills.any { it.selected }
 
-      val finalPrompt =
-        buildString {
-          if (basePrompt.isNotEmpty()) append(basePrompt)
-          // KakaoTalk send tool is always available (see customtasks/kakao). Tell the model how to
-          // use it, and to confirm with the user before sending (it's an irreversible action).
-          if (isNotEmpty()) append("\n\n")
-          append(
-            "사용자가 카카오톡(카톡) 메시지를 보내달라고 명확히 말하면 `sendKakaoMessage` 도구를 " +
-              "호출하세요. 보내기 전에 수신자와 메시지 내용을 사용자에게 요약해 확인받으세요. " +
-              "실제 전송은 카카오톡 화면에서 사용자가 수신자를 고르고 확정합니다."
-          )
-          append("\n\n")
-          append(
-            "최신 뉴스·오늘의 사실·시세·일정처럼 시의성이 있거나 당신이 확실히 알지 못하는 정보가 " +
-              "필요하면, 말로 설명하기 전에 먼저 `searchWeb` 도구를 실제로 호출하세요. \"검색해볼게요\" 같은 " +
-              "말만 하고 도구를 호출하지 않거나, 호출하지도 않고 검색했다고 말하지 마세요. 도구 결과를 " +
-              "받은 뒤에만 그 내용을 바탕으로 핵심만 간결히 정리해 답하고, 결과가 없거나 불확실하면 " +
-              "솔직히 그렇게 말하세요. 음성으로 읽히므로 코드·표·URL 나열은 피하고 짧고 자연스럽게 답하세요."
-          )
-          if (hasSkills) {
-            if (isNotEmpty()) append("\n\n")
-            append(
-              "다음 스킬들을 사용할 수 있습니다. 어떤 스킬이 사용자의 요청에 맞으면 `loadSkill`로 " +
-                "스킬을 불러와 그 지시를 따르세요.\n\n" + skillsPrompt
-            )
-          }
-          if (hasTools) {
-            if (isNotEmpty()) append("\n\n")
-            append(
-              "다음 도구들을 사용할 수 있습니다. 사용자의 요청을 처리하려면 적절한 도구를 " +
-                "`runMcpTool`로 호출하세요. 도구 이름은 아래 목록에서 정확히 사용하세요.\n\n" +
-                toolsPrompt
-            )
-          }
-        }
+      // Agent-Skills-style system prompt injection (routing + skill/MCP lists), layered on the
+      // character persona and built-in Kakao/web-search tools.
       val instruction: Contents? =
-        if (finalPrompt.isNotEmpty()) Contents.of(listOf(Content.Text(finalPrompt))) else null
+        buildVoiceAssistantSystemInstruction(
+          personaPrompt = basePrompt,
+          skills = selectedSkills,
+          toolsPrompt = toolsPrompt,
+        )
 
       // The KakaoTalk share tool is always offered; skills/MCP are added only when present. Function
       // calling is therefore always enabled.

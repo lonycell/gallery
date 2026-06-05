@@ -28,8 +28,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -53,8 +57,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -72,6 +79,9 @@ import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -95,7 +105,9 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -112,12 +124,14 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.character.CharacterViewModel
-import com.google.ai.edge.gallery.common.PermissionResult
-import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDialog
+import com.google.ai.edge.gallery.customtasks.agentchat.AgentToolsActionHost
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
+import com.google.ai.edge.gallery.customtasks.agentchat.decodeBase64ToBitmap
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatInputMode
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessage
+import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessageKind
+import com.google.ai.edge.gallery.customtasks.voiceassistant.ToolProgressData
 import com.google.ai.edge.gallery.customtasks.voiceassistant.EmotionCue
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
@@ -125,6 +139,11 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantUiSta
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.ui.common.MarkdownText
+import com.google.ai.edge.gallery.ui.common.chat.ChatMessageWebView
+import com.google.ai.edge.gallery.ui.common.chat.ChatSide
+import com.google.ai.edge.gallery.ui.common.chat.LogsViewer
+import com.google.ai.edge.gallery.ui.common.chat.MessageBodyWebview
+import com.google.ai.edge.gallery.ui.common.chat.ProgressPanelItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -349,30 +368,16 @@ private fun VoiceChatContent(
     }
   }
 
-  // Pending MCP tool-call permission dialog (tools run during the chat).
-  val mcpPermission by viewModel.mcpPermissionRequest.collectAsState()
-  mcpPermission?.let { action ->
-    McpToolCallPermissionDialog(
-      toolName = action.toolName,
-      argument = action.argument,
-      onResult = { result ->
-        if (result == PermissionResult.ALWAYS_ALLOW) {
-          mcpManagerViewModel.uiState.value.mcpServers
-            .find { s -> s.mcpServer.toolsList.any { it.name == action.toolName } }
-            ?.mcpServer
-            ?.url
-            ?.let { url ->
-              mcpManagerViewModel.setMcpToolAlwaysAllow(
-                url = url,
-                toolName = action.toolName,
-                alwaysAllow = true,
-              )
-            }
-        }
-        viewModel.resolveMcpPermission(result)
-      },
-    )
-  }
+  // Full Agent-Skills action surface: JS skills (WebView), secrets, runtime + MCP permissions.
+  AgentToolsActionHost(
+    agentTools = voiceCustomTask.agentTools,
+    taskId = voiceTask.id,
+    skillManagerViewModel = skillManagerViewModel,
+    mcpManagerViewModel = mcpManagerViewModel,
+    onSkillProgress = { action -> viewModel.onSkillProgressAction(action) },
+    onLogMessage = { log -> viewModel.addLogToToolProgressPanel(log) },
+    modifier = Modifier.size(0.dp),
+  )
 
   // Microphone handling mirrors the original Voice Assistant screen exactly: request the permission
   // only on the first mic tap, then start listening.
@@ -717,16 +722,53 @@ private fun Transcript(
     verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
   ) {
-    itemsIndexed(messages) { index, message ->
-      VoiceChatBubble(
-        message = message,
-        avatarRes = avatarRes,
-        canDeleteBefore = index > 0,
-        onDeleteBefore = { onDeleteBefore(index) },
-        onRegenerate = { onRegenerate(index) },
-        onNewChat = onNewChat,
-        onContinue = onContinue,
-      )
+    itemsIndexed(messages, key = { index, message -> "$index-${message.kind}-${message.text.hashCode()}" }) {
+      index,
+      message ->
+      when (message.kind) {
+        ChatMessageKind.TOOL_PROGRESS ->
+          message.toolProgress?.let { panel ->
+            VoiceToolProgressBubble(panel = panel, modifier = Modifier.fillMaxWidth())
+          }
+        ChatMessageKind.IMAGE ->
+          message.imageBase64?.let { base64 ->
+            decodeBase64ToBitmap(base64String = base64)?.let { bitmap ->
+              Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillWidth,
+                modifier =
+                  Modifier.fillMaxWidth(0.85f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .padding(vertical = 4.dp),
+              )
+            }
+          }
+        ChatMessageKind.WEBVIEW ->
+          if (!message.webViewUrl.isNullOrEmpty()) {
+            MessageBodyWebview(
+              message =
+                ChatMessageWebView(
+                  url = message.webViewUrl,
+                  iframe = message.webViewIframe,
+                  aspectRatio = message.webViewAspectRatio,
+                  hideSenderLabel = true,
+                  side = ChatSide.AGENT,
+                ),
+              modifier = Modifier.fillMaxWidth(0.92f),
+            )
+          }
+        ChatMessageKind.TEXT ->
+          VoiceChatBubble(
+            message = message,
+            avatarRes = avatarRes,
+            canDeleteBefore = index > 0,
+            onDeleteBefore = { onDeleteBefore(index) },
+            onRegenerate = { onRegenerate(index) },
+            onNewChat = onNewChat,
+            onContinue = onContinue,
+          )
+      }
     }
     // "쉿!" mute toggle in the bottom-right margin below the last bubble: when on, replies still show
     // as text but are never spoken.
@@ -761,6 +803,108 @@ private fun MuteToggle(muted: Boolean, onToggle: () -> Unit, modifier: Modifier 
       tint = Color.White,
       modifier = Modifier.size(19.dp),
     )
+  }
+}
+
+/** Collapsable tool/skill progress panel styled for the dark voice-chat theme. */
+@Composable
+private fun VoiceToolProgressBubble(panel: ToolProgressData, modifier: Modifier = Modifier) {
+  var isExpanded by remember { mutableStateOf(false) }
+  var showLogsViewer by remember { mutableStateOf(false) }
+  val density = LocalDensity.current
+
+  Column(
+    modifier =
+      modifier
+        .clip(RoundedCornerShape(16.dp))
+        .background(Color.White.copy(alpha = 0.12f))
+        .clickable { isExpanded = !isExpanded }
+        .padding(horizontal = 14.dp, vertical = 12.dp)
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      Row(
+        modifier = Modifier.weight(1f),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(22.dp)) {
+          if (panel.inProgress) {
+            CircularProgressIndicator(
+              modifier = Modifier.size(16.dp),
+              strokeWidth = 2.dp,
+              color = ListeningColor,
+            )
+          } else {
+            Icon(Icons.Rounded.Check, contentDescription = null, tint = ListeningColor)
+          }
+        }
+        AnimatedContent(
+          targetState = panel.title,
+          transitionSpec = {
+            slideInVertically { it } + fadeIn() togetherWith slideOutVertically { -it } + fadeOut()
+          },
+          label = "toolTitle",
+        ) { title ->
+          Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+      }
+      Icon(
+        imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+        contentDescription = null,
+        tint = Color.White.copy(alpha = 0.7f),
+      )
+    }
+
+    AnimatedVisibility(visible = isExpanded, enter = fadeIn(), exit = fadeOut()) {
+      Column(
+        modifier = Modifier.padding(top = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        for (item in panel.items) {
+          VoiceProgressPanelItem(item = item, density = density)
+        }
+        if (panel.logMessages.isNotEmpty()) {
+          Text(
+            text = "콘솔 로그 보기",
+            color = AccentPink,
+            fontSize = 12.sp,
+            modifier = Modifier.clickable { showLogsViewer = true }.padding(top = 4.dp),
+          )
+        }
+      }
+    }
+  }
+
+  if (showLogsViewer) {
+    LogsViewer(logs = panel.logMessages, onDismissRequest = { showLogsViewer = false })
+  }
+}
+
+@Composable
+private fun VoiceProgressPanelItem(item: ProgressPanelItem, density: androidx.compose.ui.unit.Density) {
+  Column(
+    modifier =
+      Modifier.fillMaxWidth()
+        .clip(RoundedCornerShape(12.dp))
+        .background(Color.White.copy(alpha = 0.08f))
+        .padding(10.dp)
+  ) {
+    Text(item.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    if (item.description.isNotEmpty()) {
+      val maxHeight =
+        with(density) { (14.sp * 1.4f * 5).toDp() }
+      Text(
+        text = item.description,
+        color = Color.White.copy(alpha = 0.75f),
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        modifier = Modifier.heightIn(max = maxHeight).verticalScroll(rememberScrollState()),
+      )
+    }
   }
 }
 

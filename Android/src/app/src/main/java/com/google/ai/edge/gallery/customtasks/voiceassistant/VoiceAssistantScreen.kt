@@ -81,11 +81,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.ai.edge.gallery.common.PermissionResult
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
+import com.google.ai.edge.gallery.customtasks.agentchat.AgentToolsActionHost
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
-import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDialog
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
 import com.google.ai.edge.gallery.customtasks.speech.KOREAN_TTS_MODEL_NAME
@@ -115,7 +114,7 @@ fun VoiceAssistantScreen(
   agentTools.skillManagerViewModel = skillManagerViewModel
   agentTools.mcpManagerViewModel = mcpManagerViewModel
   agentTools.taskId = task.id
-  LaunchedEffect(Unit) { viewModel.attachAgentTools(agentTools) }
+  LaunchedEffect(agentTools) { viewModel.setAgentTools(agentTools) }
 
   // Track how many MCP tools are connected/enabled so the UI can offer connecting them and so we can
   // re-initialize the model (to enable function calling) once tools become available.
@@ -131,30 +130,15 @@ fun VoiceAssistantScreen(
   val skillCount = skillUiState.skills.count { it.skill.selected }
   LaunchedEffect(skillCount) { viewModel.setSkillCount(skillCount) }
 
-  // Pending MCP tool-call permission dialog.
-  val mcpPermission by viewModel.mcpPermissionRequest.collectAsState()
-  mcpPermission?.let { action ->
-    McpToolCallPermissionDialog(
-      toolName = action.toolName,
-      argument = action.argument,
-      onResult = { result ->
-        if (result == PermissionResult.ALWAYS_ALLOW) {
-          mcpManagerViewModel.uiState.value.mcpServers
-            .find { s -> s.mcpServer.toolsList.any { it.name == action.toolName } }
-            ?.mcpServer
-            ?.url
-            ?.let { url ->
-              mcpManagerViewModel.setMcpToolAlwaysAllow(
-                url = url,
-                toolName = action.toolName,
-                alwaysAllow = true,
-              )
-            }
-        }
-        viewModel.resolveMcpPermission(result)
-      },
-    )
-  }
+  AgentToolsActionHost(
+    agentTools = agentTools,
+    taskId = task.id,
+    skillManagerViewModel = skillManagerViewModel,
+    mcpManagerViewModel = mcpManagerViewModel,
+    onSkillProgress = { action -> viewModel.onSkillProgressAction(action) },
+    onLogMessage = { log -> viewModel.addLogToToolProgressPanel(log) },
+    modifier = Modifier.size(0.dp),
+  )
 
   // Keep the ViewModel pointed at the active, initialized model.
   LaunchedEffect(model.name) { viewModel.setActiveModel(model) }
