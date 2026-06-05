@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceOption
+import com.google.ai.edge.gallery.ui.mainpage.CharacterBackgroundView
 
 private val ScrimBase = Color(0xFF140A2B)
 private val AccentPurple = Color(0xFF7C4DFF)
@@ -291,11 +292,12 @@ private fun CharacterDetail(
   var message by remember { mutableStateOf("") }
 
   Box(modifier = Modifier.fillMaxSize().background(ScrimBase)) {
-    Image(
-      painter = painterResource(character.imageRes),
+    // Same full-bleed hero as the chat screen — shows the character's live background (still image,
+    // GIF, video, or Lottie) so the detail matches the chat.
+    CharacterBackgroundView(
+      background = character.background,
+      playing = true,
       contentDescription = character.name,
-      contentScale = ContentScale.Crop,
-      alignment = Alignment.TopCenter,
       modifier = Modifier.fillMaxSize(),
     )
     Box(
