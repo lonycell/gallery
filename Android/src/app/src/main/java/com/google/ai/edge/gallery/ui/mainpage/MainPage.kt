@@ -721,36 +721,40 @@ private fun Transcript(
   onToggleMute: () -> Unit,
 ) {
   val listState = rememberLazyListState()
-  // Keep the newest message's tail in view as it streams in. Use an instant scroll (not an animated
-  // one) so growing text just stays pinned to the bottom instead of restarting a scroll animation —
-  // animating on every token is what made the transcript visibly shake.
-  LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
-    if (messages.isNotEmpty()) {
-      listState.scrollToItem(messages.size - 1, scrollOffset = Int.MAX_VALUE)
-    }
-  }
   // The last assistant text bubble carries the "쉿!" mute toggle on its right, level with its avatar.
   val muteToggleIndex =
     messages.indexOfLast {
       it.kind == ChatMessageKind.TEXT && it.role == ChatMessage.Role.ASSISTANT
     }
+  // reverseLayout pins the newest message to the bottom: as it streams it grows *upward* with no
+  // per-token scrolling (so nothing shakes), and it can never slide off the bottom. We only snap to
+  // the newest when a brand-new message is added — streaming growth of the bottom item needs no
+  // scroll because reverseLayout anchors item 0 at the bottom.
+  LaunchedEffect(messages.size) {
+    if (messages.isNotEmpty()) listState.scrollToItem(0)
+  }
   LazyColumn(
     state = listState,
-    // Bottom-anchored so few messages sit near the input (the character's face stays visible above),
-    // and faded at the top so older messages dissolve upward as they scroll away.
+    reverseLayout = true,
+    // Faded at the top so older messages dissolve upward as they scroll away.
     // Double-tap the empty area to let the character keep talking (same as the background gesture).
     modifier =
       Modifier.fillMaxSize().topFade().pointerInput(Unit) {
         detectTapGestures(onDoubleTap = { onContinue() })
       },
-    verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
   ) {
-    // Key by position + kind only (NOT text): a content-dependent key changes every streaming token,
-    // making LazyColumn destroy and recreate the bubble each token — the cause of the shaking.
-    itemsIndexed(messages, key = { index, message -> "$index-${message.kind}" }) {
-      index,
-      message ->
+    val lastIndex = messages.lastIndex
+    // Draw newest-first (reverseLayout places index 0 at the bottom). [ri] is the reversed index;
+    // [index] is the real, stable position in [messages] so keys/callbacks don't shift as it grows.
+    // Key by position + kind only (NOT text): a content-dependent key would change every streaming
+    // token, making LazyColumn destroy and recreate the bubble — another cause of shaking.
+    itemsIndexed(
+      messages.asReversed(),
+      key = { ri, message -> "${lastIndex - ri}-${message.kind}" },
+    ) { ri, message ->
+      val index = lastIndex - ri
       when (message.kind) {
         ChatMessageKind.TOOL_PROGRESS ->
           message.toolProgress?.let { panel ->
