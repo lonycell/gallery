@@ -980,7 +980,11 @@ private fun VoiceChatBubble(
       }
     Box(
       modifier =
-        Modifier.widthIn(max = 280.dp)
+        // When the mute toggle shares this row, give the bubble a flexible (non-filling) slot so its
+        // streaming width changes stay within the slot and never push the avatar/toggle around — the
+        // row no longer reflows/overflows as the text grows.
+        (if (showMuteToggle) Modifier.weight(1f, fill = false) else Modifier)
+          .widthIn(max = 280.dp)
           .then(bubbleModifier)
           .combinedClickable(
             onClick = {},
@@ -1050,9 +1054,11 @@ private fun VoiceChatBubble(
       }
     }
 
-    // "쉿!" mute toggle: pushed to the right edge, level with the avatar (Row is bottom-aligned).
+    // "쉿!" mute toggle: sits at the row's right edge, level with the avatar (Row is bottom-aligned).
+    // The bubble's flexible slot (above) already fills the middle, so the toggle stays put as the
+    // bubble streams — no horizontal shake.
     if (showMuteToggle) {
-      Spacer(modifier = Modifier.weight(1f))
+      Spacer(modifier = Modifier.width(8.dp))
       MuteToggle(muted = isMuted, onToggle = onToggleMute)
     }
   }
