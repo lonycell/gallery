@@ -87,6 +87,10 @@ object Characters {
         imageRes = R.drawable.char_01,
         priceCoins = 0,
         freeByDefault = true,
+        // Demo: a short, free-licensed (Mixkit) portrait video background. Replace res/raw/bg_sample
+        // with your own clip (e.g. an AI-generated one) anytime, or point this at a URL via
+        // CharacterBackground.video("https://…").
+        background = CharacterBackground.video(R.raw.bg_sample),
       ),
       Character(
         id = "jiwoo",
