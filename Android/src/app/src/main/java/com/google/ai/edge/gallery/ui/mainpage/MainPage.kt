@@ -712,6 +712,11 @@ private fun Transcript(
       listState.scrollToItem(messages.size - 1, scrollOffset = Int.MAX_VALUE)
     }
   }
+  // The last assistant text bubble carries the "쉿!" mute toggle on its right, level with its avatar.
+  val muteToggleIndex =
+    messages.indexOfLast {
+      it.kind == ChatMessageKind.TEXT && it.role == ChatMessage.Role.ASSISTANT
+    }
   LazyColumn(
     state = listState,
     // Bottom-anchored so few messages sit near the input (the character's face stays visible above),
@@ -771,19 +776,10 @@ private fun Transcript(
             onRegenerate = { onRegenerate(index) },
             onNewChat = onNewChat,
             onContinue = onContinue,
+            showMuteToggle = index == muteToggleIndex,
+            isMuted = isMuted,
+            onToggleMute = onToggleMute,
           )
-      }
-    }
-    // "쉿!" mute toggle in the bottom-right margin below the last bubble: when on, replies still show
-    // as text but are never spoken.
-    if (messages.isNotEmpty()) {
-      item {
-        Row(
-          modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 6.dp),
-          horizontalArrangement = Arrangement.End,
-        ) {
-          MuteToggle(muted = isMuted, onToggle = onToggleMute)
-        }
       }
     }
   }
@@ -922,6 +918,9 @@ private fun VoiceChatBubble(
   onRegenerate: () -> Unit,
   onNewChat: () -> Unit,
   onContinue: () -> Unit,
+  showMuteToggle: Boolean = false,
+  isMuted: Boolean = false,
+  onToggleMute: () -> Unit = {},
 ) {
   val isUser = message.role == ChatMessage.Role.USER
   // An assistant reply that hasn't produced any text yet: show an animated typing indicator.
@@ -1032,6 +1031,12 @@ private fun VoiceChatBubble(
           },
         )
       }
+    }
+
+    // "쉿!" mute toggle: pushed to the right edge, level with the avatar (Row is bottom-aligned).
+    if (showMuteToggle) {
+      Spacer(modifier = Modifier.weight(1f))
+      MuteToggle(muted = isMuted, onToggle = onToggleMute)
     }
   }
 }
