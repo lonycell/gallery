@@ -86,6 +86,12 @@ private const val GENERATION_STALL_TIMEOUT_MS = 45_000L
 private const val CALL_SILENT_COOLDOWN_MS = 1100L
 // Cap on how many consecutive silent turns lengthen the cooldown, so it never stalls indefinitely.
 private const val CALL_SILENT_BACKOFF_CAP = 3
+// A turn that listened at least this long before ending empty counts as genuine silence (not a fast
+// engine error), so the mic re-opens near-immediately to feel like continuous listening.
+private const val MIN_HEALTHY_LISTEN_MS = 700L
+// Near-immediate re-listen gap after genuine silence, so call mode keeps listening without a visible
+// off/on blink (still long enough for the system recognizer to reset cleanly).
+private const val CALL_CONTINUOUS_RELISTEN_MS = 120L
 
 // Hidden prompt that makes the character open the conversation with a short, in-persona greeting.
 private const val GREETING_PROMPT =
@@ -299,10 +305,32 @@ constructor(
   // stale-binding failure.
   private var speechRecognizer: SpeechRecognizer? = null
 
-  // Consecutive call-mode listening turns that captured nothing (silence / no-match / busy). Used to
-  // stretch the re-listen cooldown so the half-duplex loop never spins open/closed while the user is
-  // quiet. Reset to 0 whenever a turn yields real speech.
+  // Consecutive call-mode turns that ended abnormally fast with nothing captured (engine not ready /
+  // busy / errored). Used to back off the re-listen cooldown so the half-duplex loop never spins
+  // open/closed. Reset to 0 on a genuine listen (real speech, or silence after listening a while).
   private var consecutiveSilentTurns = 0
+  // When a turn genuinely listened for a while and only ended on silence, we re-open the mic almost
+  // immediately so call mode feels like continuous listening rather than visibly blinking off/on.
+  @Volatile private var continuousListen = false
+  // When the current/last recognition session actually began (elapsedRealtime), to tell a real
+  // "listened then went silent" turn from one that died instantly.
+  private var recognitionStartedAt = 0L
+
+  /**
+   * Classifies a turn that captured no speech. If the recognizer actually listened for a while before
+   * the silence, it's genuine quiet → keep listening near-continuously. If it ended almost instantly
+   * (engine wasn't ready), it's a spin risk → back off.
+   */
+  private fun onEmptyRecognitionTurn() {
+    val listenedMs = android.os.SystemClock.elapsedRealtime() - recognitionStartedAt
+    if (listenedMs >= MIN_HEALTHY_LISTEN_MS) {
+      consecutiveSilentTurns = 0
+      continuousListen = true
+    } else {
+      continuousListen = false
+      consecutiveSilentTurns++
+    }
+  }
 
   /** Lazily creates the system recognizer (must run on the main thread). Null if unavailable. */
   private fun ensureSpeechRecognizer(): SpeechRecognizer? {
@@ -590,12 +618,14 @@ constructor(
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
       }
     _uiState.update { it.copy(isListening = true, partialTranscript = "", error = "") }
+    recognitionStartedAt = android.os.SystemClock.elapsedRealtime()
     try {
       recognizer.startListening(intent)
     } catch (e: Exception) {
       Log.e(TAG, "Failed to start listening", e)
-      // Count the failed start as a silent turn so the call loop backs off instead of hot-looping on
-      // a recognizer that keeps refusing to start.
+      // A failed start is a fast/unhealthy ending: back off so the call loop doesn't hot-loop on a
+      // recognizer that keeps refusing to start.
+      continuousListen = false
       consecutiveSilentTurns++
       _uiState.update { it.copy(isListening = false, error = "듣기를 시작할 수 없습니다.") }
     }
@@ -655,6 +685,7 @@ constructor(
    */
   private fun startCallLoop() {
     consecutiveSilentTurns = 0
+    continuousListen = false
     callLoopJob?.cancel()
     callLoopJob =
       viewModelScope.launch {
@@ -670,14 +701,18 @@ constructor(
             if (relisten == null) {
               relisten =
                 launch {
-                  // Snappy after the assistant just spoke; progressively calmer after silent turns so
-                  // the mic doesn't flicker open/closed while the user is quiet (and so a busy engine
-                  // has time to reset).
+                  // - Fast/abnormal empty endings → progressively calmer (avoid spin).
+                  // - Genuine silence after a real listen → near-immediate, so it feels like the mic
+                  //   never closed.
+                  // - Otherwise (just spoke / first open) → a short debounce.
                   val cooldown =
-                    if (consecutiveSilentTurns > 0)
-                      CALL_SILENT_COOLDOWN_MS *
-                        consecutiveSilentTurns.coerceAtMost(CALL_SILENT_BACKOFF_CAP)
-                    else CALL_RELISTEN_DEBOUNCE_MS
+                    when {
+                      consecutiveSilentTurns > 0 ->
+                        CALL_SILENT_COOLDOWN_MS *
+                          consecutiveSilentTurns.coerceAtMost(CALL_SILENT_BACKOFF_CAP)
+                      continuousListen -> CALL_CONTINUOUS_RELISTEN_MS
+                      else -> CALL_RELISTEN_DEBOUNCE_MS
+                    }
                   delay(cooldown)
                   val now = _uiState.value
                   if (
@@ -717,6 +752,7 @@ constructor(
     try {
       audioRecorder.start()
       usingNeuralCapture = true
+      recognitionStartedAt = android.os.SystemClock.elapsedRealtime()
       _uiState.update { it.copy(isListening = true, partialTranscript = "", error = "") }
     } catch (e: Throwable) {
       Log.e(TAG, "Failed to start neural recording", e)
@@ -748,9 +784,10 @@ constructor(
       val trimmed = text.trim()
       if (trimmed.isNotEmpty()) {
         consecutiveSilentTurns = 0
+        continuousListen = false
         submitUserInput(trimmed)
       } else {
-        consecutiveSilentTurns++
+        onEmptyRecognitionTurn()
       }
     }
   }
@@ -773,8 +810,17 @@ constructor(
   override fun onError(error: Int) {
     val wasListening = uiState.value.isListening
     _uiState.update { it.copy(isListening = false) }
-    // No speech captured this turn → lengthen the call-mode cooldown so we don't spin.
-    if (wasListening) consecutiveSilentTurns++
+    val isSilence =
+      error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+    if (wasListening) {
+      // Silence after a real listen → keep listening near-continuously; any other error (or a turn
+      // that died instantly) → back off so the loop doesn't spin.
+      if (isSilence) onEmptyRecognitionTurn()
+      else {
+        continuousListen = false
+        consecutiveSilentTurns++
+      }
+    }
     // Recreate the recognizer after errors that leave the binding in a bad state:
     // - BUSY/CLIENT: previous session not fully released; cancel gets us a clean engine.
     // - AUDIO (3): the AudioPolicyService rejected the attribution chain (common when USB debugging
@@ -818,10 +864,10 @@ constructor(
     _uiState.update { it.copy(isListening = false, partialTranscript = "") }
     if (text.isNotEmpty()) {
       consecutiveSilentTurns = 0
+      continuousListen = false
       submitUserInput(text)
     } else {
-      // Empty result counts as a silent turn (back off the next re-listen).
-      consecutiveSilentTurns++
+      onEmptyRecognitionTurn()
     }
   }
 
