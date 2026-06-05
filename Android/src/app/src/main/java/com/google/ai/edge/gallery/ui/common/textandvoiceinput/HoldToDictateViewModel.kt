@@ -46,19 +46,16 @@ class HoldToDictateViewModel @Inject constructor(@ApplicationContext private val
   protected val _uiState = MutableStateFlow(HoldToDictateUiState())
   val uiState = _uiState.asStateFlow()
 
-  private val speechRecognizer: SpeechRecognizer
+  // Created lazily on first use. createSpeechRecognizer() binds to the system RecognitionService,
+  // which captures the app's RECORD_AUDIO grant state at bind time. Building it eagerly (e.g. in
+  // init) would bind before the user grants the mic, leaving the binding unprivileged so recording
+  // later fails with ERROR_AUDIO even after the grant.
+  private var speechRecognizer: SpeechRecognizer? = null
   private val recognizerIntent: Intent
   private var onRecognitionDone: ((String) -> Unit)? = null
   private var onAmplitudeChanged: ((Int) -> Unit)? = null
 
   init {
-    // Initialize SpeechRecognizer
-    speechRecognizer =
-      SpeechRecognizer.createSpeechRecognizer(context).apply {
-        setRecognitionListener(this@HoldToDictateViewModel)
-      }
-
-    // Initialize Intent (used for language/model settings)
     recognizerIntent =
       Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -68,11 +65,18 @@ class HoldToDictateViewModel @Inject constructor(@ApplicationContext private val
       }
   }
 
+  private fun ensureSpeechRecognizer(): SpeechRecognizer {
+    speechRecognizer?.let { return it }
+    return SpeechRecognizer.createSpeechRecognizer(context)
+      .apply { setRecognitionListener(this@HoldToDictateViewModel) }
+      .also { speechRecognizer = it }
+  }
+
   fun startSpeechRecognition(onDone: (String) -> Unit, onAmplitudeChanged: (Int) -> Unit) {
     onRecognitionDone = onDone
     this.onAmplitudeChanged = onAmplitudeChanged
 
-    speechRecognizer.startListening(recognizerIntent)
+    ensureSpeechRecognizer().startListening(recognizerIntent)
     setRecognizedText(text = "")
     setRecognizing(recognizing = true)
   }
@@ -80,7 +84,7 @@ class HoldToDictateViewModel @Inject constructor(@ApplicationContext private val
   fun stopSpeechRecognition() {
     viewModelScope.launch {
       delay(500)
-      speechRecognizer.stopListening()
+      speechRecognizer?.stopListening()
       setRecognizing(recognizing = false)
     }
   }

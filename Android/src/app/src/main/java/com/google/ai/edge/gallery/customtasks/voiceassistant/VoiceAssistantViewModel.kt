@@ -741,14 +741,22 @@ constructor(
     _uiState.update { it.copy(isListening = false) }
     // No speech captured this turn → lengthen the call-mode cooldown so we don't spin.
     if (wasListening) consecutiveSilentTurns++
-    // A busy/client error means the previous session hadn't fully released; reset the recognizer so
-    // the next startListening() gets a clean engine instead of bouncing on BUSY again.
-    if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) {
+    // Recreate the recognizer after errors that leave the binding in a bad state:
+    // - BUSY/CLIENT: previous session not fully released; cancel gets us a clean engine.
+    // - AUDIO (3): the AudioPolicyService rejected the attribution chain (common when USB debugging
+    //   is connected on Android 12+ — the stale binding carries unprivileged mic access). Destroying
+    //   and nullifying forces ensureSpeechRecognizer() to rebind with the current permission state.
+    if (
+      error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+        error == SpeechRecognizer.ERROR_CLIENT ||
+        error == SpeechRecognizer.ERROR_AUDIO
+    ) {
       try {
-        speechRecognizer?.cancel()
+        speechRecognizer?.destroy()
       } catch (e: Exception) {
-        Log.w(TAG, "Failed to cancel recognizer after error $error", e)
+        Log.w(TAG, "Failed to destroy recognizer after error $error", e)
       }
+      speechRecognizer = null
     }
     // Ignore "no match" / "speech timeout" which are common and not worth surfacing loudly.
     if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
