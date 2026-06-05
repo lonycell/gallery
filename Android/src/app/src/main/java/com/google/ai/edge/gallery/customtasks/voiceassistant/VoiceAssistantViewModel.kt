@@ -95,6 +95,12 @@ private const val GREETING_PROMPT =
   "(사용자가 방금 너와 대화를 시작했어. 너의 성격과 말투를 살려서, 짧고 자연스럽게 먼저 인사하며 " +
     "말을 걸어줘. 한두 문장으로만 해줘.)"
 
+// Hidden prompt sent when the user double-taps the background to let the character keep talking on
+// its own. No user message is shown; the character simply continues the conversation naturally.
+private const val CONTINUE_PROMPT =
+  "(사용자는 말없이 너의 이야기를 더 듣고 싶어 해. 지금까지의 흐름을 이어서, 너의 성격과 말투를 살려 " +
+    "자연스럽게 한두 문장 더 이야기를 건네줘. 대화가 처음이라면 가볍게 먼저 말을 걸어줘.)"
+
 // Characters that end a sentence (Korean + Latin + CJK), used by streaming TTS to decide when a
 // chunk of the reply is complete enough to start speaking. Newlines also flush.
 private val SENTENCE_TERMINATORS = charArrayOf('.', '!', '?', '…', '。', '！', '？', '\n')
@@ -913,6 +919,29 @@ constructor(
     }
     syncActiveMessages()
     runLlm(model, GREETING_PROMPT)
+  }
+
+  /**
+   * Lets the character keep talking on its own (used by the background double-tap). Sends a hidden
+   * "continue" instruction to the model but adds NO user message — only the assistant's reply shows.
+   * No-op while a reply is already in progress.
+   */
+  fun continueTalking(model: Model) {
+    if (_uiState.value.isThinking) {
+      return
+    }
+    // Interrupt any current speech so the new line doesn't overlap.
+    stopSpeaking()
+    _uiState.update {
+      it.copy(
+        messages =
+          it.messages + ChatMessage(role = ChatMessage.Role.ASSISTANT, text = "", isStreaming = true),
+        isThinking = true,
+        error = "",
+      )
+    }
+    syncActiveMessages()
+    runLlm(model, CONTINUE_PROMPT)
   }
 
   /** Clears the whole active conversation and starts fresh. */

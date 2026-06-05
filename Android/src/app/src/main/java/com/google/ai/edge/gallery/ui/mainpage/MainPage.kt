@@ -37,6 +37,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -405,6 +406,14 @@ private fun VoiceChatContent(
     }
   }
 
+  // Double-tap the background (the character's face area) to let the avatar keep talking on its own,
+  // with no user message added.
+  val continueTalking: () -> Unit = {
+    if (modelReady && !uiState.isThinking) {
+      targetModel?.let { viewModel.continueTalking(it) }
+    }
+  }
+
   // Latest emotion cue (emoji in a reply) to animate as a floating effect.
   var emotionCue by remember { mutableStateOf<EmotionCue?>(null) }
   LaunchedEffect(Unit) { viewModel.emotionCues.collect { emotionCue = it } }
@@ -430,6 +439,8 @@ private fun VoiceChatContent(
               1.0f to ScrimBase,
             )
           )
+          // Double-tap the background to nudge the character to keep talking (no user message).
+          .pointerInput(Unit) { detectTapGestures(onDoubleTap = { continueTalking() }) }
     )
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
