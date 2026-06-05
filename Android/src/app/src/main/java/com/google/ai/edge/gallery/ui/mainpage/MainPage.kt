@@ -35,6 +35,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,6 +93,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -119,6 +123,7 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewM
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.ui.common.MarkdownText
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 // Shared palette with the subscription paywall for a consistent, futuristic look.
 private val ScrimBase = Color(0xFF140A2B)
@@ -1034,7 +1039,23 @@ private fun MicOrb(
               )
             }
           )
-          .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+          // Custom tap/long-press so the hold-to-call gesture is a touch longer than the system
+          // default (default long-press timeout + 300ms), as requested.
+          .pointerInput(onClick, onLongClick) {
+            val longPressTimeout = viewConfiguration.longPressTimeoutMillis + 300L
+            awaitEachGesture {
+              awaitFirstDown()
+              val up = withTimeoutOrNull(longPressTimeout) { waitForUpOrCancellation() }
+              if (up == null) {
+                // Held past the (extended) threshold → long-press: enter call mode.
+                onLongClick()
+                // Swallow the eventual release so it isn't also treated as a tap.
+                waitForUpOrCancellation()
+              } else {
+                onClick()
+              }
+            }
+          },
       contentAlignment = Alignment.Center,
     ) {
       Icon(
