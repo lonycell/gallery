@@ -133,6 +133,20 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
     return true
   }
 
+  // Transient request to have the character greet first when entering the chat (set by the "start
+  // chat" button on the character detail). Consumed by the chat screen once the model is ready.
+  @Volatile private var pendingGreetingId: String? = null
+
+  fun requestGreeting(characterId: String) {
+    pendingGreetingId = characterId
+  }
+
+  fun isGreetingPending(characterId: String): Boolean = pendingGreetingId == characterId
+
+  fun clearGreeting() {
+    pendingGreetingId = null
+  }
+
   /** Whether [character] is available to use (free, already purchased, or unlocked by Pro). */
   fun isUnlocked(character: Character): Boolean {
     val s = _state.value

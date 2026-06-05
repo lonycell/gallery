@@ -112,6 +112,7 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantUiState
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import kotlinx.coroutines.delay
 
 // Shared palette with the subscription paywall for a consistent, futuristic look.
 private val ScrimBase = Color(0xFF140A2B)
@@ -301,6 +302,18 @@ private fun VoiceChatContent(
   // A model has already been downloaded and is just being loaded/initialized (this can take a while
   // for an LLM) — distinct from "no model downloaded yet, go to settings".
   val modelDownloaded = targetModel != null
+
+  // When entering the chat from the character's "start chat" button, have the character greet first —
+  // but only once the model is ready (no greeting while it still needs downloading/preparing).
+  LaunchedEffect(modelReady, charState.selectedId) {
+    if (modelReady && characterViewModel.isGreetingPending(charState.selectedId)) {
+      delay(250) // let this character's saved history (if any) finish loading first
+      characterViewModel.clearGreeting()
+      if (uiState.messages.isEmpty()) {
+        targetModel?.let { viewModel.greet(it) }
+      }
+    }
+  }
 
   // Pending MCP tool-call permission dialog (tools run during the chat).
   val mcpPermission by viewModel.mcpPermissionRequest.collectAsState()

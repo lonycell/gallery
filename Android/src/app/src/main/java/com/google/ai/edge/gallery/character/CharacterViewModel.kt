@@ -52,6 +52,12 @@ class CharacterViewModel @Inject constructor(private val repository: CharacterRe
 
   fun needsModelInit(signature: String): Boolean = repository.needsModelInit(signature)
 
+  fun requestGreeting(characterId: String) = repository.requestGreeting(characterId)
+
+  fun isGreetingPending(characterId: String): Boolean = repository.isGreetingPending(characterId)
+
+  fun clearGreeting() = repository.clearGreeting()
+
   fun characterById(id: String): Character? = Characters.byId(id)
 
   fun selectedCharacter(): Character = repository.selectedCharacter()

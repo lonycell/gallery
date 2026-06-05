@@ -148,6 +148,7 @@ fun CharacterScreen(
       onDismiss = { detail = null },
       onChat = {
         viewModel.select(character.id)
+        viewModel.requestGreeting(character.id)
         detail = null
         onStartChat()
       },
