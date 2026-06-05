@@ -78,6 +78,11 @@ private const val ASSISTANT_UTTERANCE_ID = "va_assistant_utterance"
 // the mic re-opens — long enough to absorb the brief think→speak gap, short enough to feel live.
 private const val CALL_RELISTEN_DEBOUNCE_MS = 450L
 
+// "생각 중" only clears when generation produces a token, finishes (onDone), or errors. If the runtime
+// goes silent — a hung tool call or a wedged engine — it would otherwise hang forever. If no output
+// arrives for this long, treat it as a stall and recover the UI so the user can retry.
+private const val GENERATION_STALL_TIMEOUT_MS = 45_000L
+
 // In call mode, after a turn that captured nothing (silence / no-match), wait this much longer before
 // re-opening the mic. This gives the recognizer time to fully reset (avoiding ERROR_RECOGNIZER_BUSY)
 // and keeps the loop from flickering open/closed while the user is simply quiet.
@@ -1433,17 +1438,58 @@ constructor(
     runLlm(activeModel, text)
   }
 
+  // Guards a single in-flight generation. Bumped on every new generation (and when the watchdog gives
+  // up on a stalled one) so late callbacks from an abandoned run can't resurrect the UI.
+  @Volatile private var generationSeq = 0L
+  private var watchdogJob: Job? = null
+
+  /** Marks the current generation finished: cancels the stall watchdog and clears the thinking flag. */
+  private fun finishGeneration() {
+    watchdogJob?.cancel()
+    watchdogJob = null
+  }
+
   private fun runLlm(model: Model, input: String) {
     val builder = StringBuilder()
     // The conversation this generation belongs to. If the user switches characters mid-generation,
     // stale results must not leak into the new conversation.
     val convId = activeConversationId
+    val genId = ++generationSeq
     // In STREAMING mode we speak each finished sentence as it arrives; in AFTER_COMPLETE we speak
     // the whole reply once generation finishes (the original behavior).
     val streamingSpeech = _uiState.value.speakMode == TtsSpeakMode.STREAMING
     if (streamingSpeech) {
       beginStreamingSpeech()
     }
+
+    // Stall watchdog: while output keeps arriving (even slowly) we leave generation alone; if it goes
+    // completely silent for GENERATION_STALL_TIMEOUT_MS we recover so "생각 중" can't hang forever.
+    val lastOutputAt = java.util.concurrent.atomic.AtomicLong(android.os.SystemClock.elapsedRealtime())
+    watchdogJob?.cancel()
+    watchdogJob =
+      viewModelScope.launch {
+        while (generationSeq == genId && _uiState.value.isThinking) {
+          val idleMs = android.os.SystemClock.elapsedRealtime() - lastOutputAt.get()
+          if (idleMs >= GENERATION_STALL_TIMEOUT_MS) {
+            Log.w(TAG, "Generation stalled (${idleMs}ms with no output); recovering from '생각 중'")
+            generationSeq++ // invalidate any late callbacks from this stalled run
+            if (streamingSpeech) cancelStreamingSpeech()
+            _uiState.update { state ->
+              val messages = state.messages.toMutableList()
+              val last = messages.indexOfLast { it.role == ChatMessage.Role.ASSISTANT }
+              if (last >= 0) messages[last] = messages[last].copy(isStreaming = false)
+              state.copy(
+                messages = messages,
+                isThinking = false,
+                error = "응답이 너무 지연돼 멈췄어요. 다시 시도해 주세요.",
+              )
+            }
+            break
+          }
+          delay(2_000)
+        }
+      }
+
     try {
       model.runtimeHelper.runInference(
         model = model,
@@ -1456,7 +1502,9 @@ constructor(
             "stream partial=${partialResult.take(80).replace("\n", "\\n")} done=$done " +
               "thought=${thought?.take(40)?.replace("\n", "\\n")}",
           )
-          if (activeConversationId == convId) {
+          if (activeConversationId == convId && generationSeq == genId) {
+            // Any output (content or thought) counts as progress — keep the watchdog from firing.
+            lastOutputAt.set(android.os.SystemClock.elapsedRealtime())
             if (!partialResult.startsWith("<ctrl")) {
               builder.append(partialResult)
               updateStreamingAssistant(builder.toString(), streaming = !done)
@@ -1467,6 +1515,7 @@ constructor(
               }
             }
             if (done) {
+              finishGeneration()
               val full = builder.toString().trim()
               _uiState.update { it.copy(isThinking = false) }
               if (streamingSpeech) {
@@ -1490,7 +1539,8 @@ constructor(
           if (streamingSpeech) {
             cancelStreamingSpeech()
           }
-          if (activeConversationId == convId) {
+          if (activeConversationId == convId && generationSeq == genId) {
+            finishGeneration()
             _uiState.update {
               it.copy(isThinking = false, error = message.ifEmpty { "문제가 발생했습니다." })
             }
@@ -1501,6 +1551,7 @@ constructor(
       )
     } catch (e: Exception) {
       Log.e(TAG, "Failed to run inference", e)
+      finishGeneration()
       if (streamingSpeech) {
         cancelStreamingSpeech()
       }
