@@ -465,7 +465,11 @@ private fun VoiceChatContent(
         }
       }
 
-      // Conversation transcript.
+      // Keep the upper half clear so the character's face (avatar background) stays visible; the
+      // conversation lives in the lower half and is bottom-anchored.
+      Spacer(modifier = Modifier.weight(1f))
+
+      // Conversation transcript (lower half).
       Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
         when {
           modelReady && uiState.messages.isEmpty() ->
