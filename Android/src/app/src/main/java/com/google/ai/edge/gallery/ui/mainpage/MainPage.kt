@@ -704,10 +704,12 @@ private fun Transcript(
   onToggleMute: () -> Unit,
 ) {
   val listState = rememberLazyListState()
-  // Keep the latest message in view as it streams in.
+  // Keep the newest message's tail in view as it streams in. Use an instant scroll (not an animated
+  // one) so growing text just stays pinned to the bottom instead of restarting a scroll animation —
+  // animating on every token is what made the transcript visibly shake.
   LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
     if (messages.isNotEmpty()) {
-      listState.animateScrollToItem(messages.size - 1)
+      listState.scrollToItem(messages.size - 1, scrollOffset = Int.MAX_VALUE)
     }
   }
   LazyColumn(
@@ -722,7 +724,9 @@ private fun Transcript(
     verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
   ) {
-    itemsIndexed(messages, key = { index, message -> "$index-${message.kind}-${message.text.hashCode()}" }) {
+    // Key by position + kind only (NOT text): a content-dependent key changes every streaming token,
+    // making LazyColumn destroy and recreate the bubble each token — the cause of the shaking.
+    itemsIndexed(messages, key = { index, message -> "$index-${message.kind}" }) {
       index,
       message ->
       when (message.kind) {
