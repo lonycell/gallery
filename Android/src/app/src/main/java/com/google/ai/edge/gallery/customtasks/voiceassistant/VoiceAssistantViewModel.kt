@@ -1319,14 +1319,16 @@ constructor(
               builder.append(partialResult)
               updateStreamingAssistant(builder.toString(), streaming = !done)
               if (streamingSpeech) {
-                enqueueReadySentences(builder.toString())
+                // Speak from a code-free view so code blocks are never read aloud (the on-screen
+                // text above keeps the code).
+                enqueueReadySentences(speakableStreamingView(builder.toString()))
               }
             }
             if (done) {
               val full = builder.toString().trim()
               _uiState.update { it.copy(isThinking = false) }
               if (streamingSpeech) {
-                finishStreamingSpeech(builder.toString())
+                finishStreamingSpeech(speakableStreamingView(builder.toString()))
               } else if (full.isNotEmpty()) {
                 speak(full)
               }

@@ -72,7 +72,10 @@ object AICoreModelHelper : LlmModelHelper {
     tools: List<ToolProvider>,
     enableConversationConstrainedDecoding: Boolean,
     coroutineScope: CoroutineScope?,
+    initialMessages: List<Message>,
   ) {
+    // AICore seeds history through its own chat session, not a litertlm Conversation, so
+    // [initialMessages] is unused here.
     // AICore model helper requires a coroutine scope
     if (coroutineScope == null) {
       Log.e(TAG, "CoroutineScope is required for AICoreModelHelper")

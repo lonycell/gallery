@@ -144,8 +144,10 @@ class VoiceAssistantTask(
           append("\n\n")
           append(
             "최신 뉴스·오늘의 사실·시세·일정처럼 시의성이 있거나 당신이 확실히 알지 못하는 정보가 " +
-              "필요하면 `searchWeb` 도구로 인터넷을 검색하세요. 검색 결과를 바탕으로 핵심만 간결히 " +
-              "정리해 답하고, 정보가 불확실하거나 최신이 아닐 수 있으면 그 점을 짧게 덧붙이세요."
+              "필요하면, 말로 설명하기 전에 먼저 `searchWeb` 도구를 실제로 호출하세요. \"검색해볼게요\" 같은 " +
+              "말만 하고 도구를 호출하지 않거나, 호출하지도 않고 검색했다고 말하지 마세요. 도구 결과를 " +
+              "받은 뒤에만 그 내용을 바탕으로 핵심만 간결히 정리해 답하고, 결과가 없거나 불확실하면 " +
+              "솔직히 그렇게 말하세요. 음성으로 읽히므로 코드·표·URL 나열은 피하고 짧고 자연스럽게 답하세요."
           )
           if (hasSkills) {
             if (isNotEmpty()) append("\n\n")
@@ -192,24 +194,14 @@ class VoiceAssistantTask(
         taskId = task.id,
         supportImage = false,
         supportAudio = false,
-        onDone = { error ->
-          // Once the engine is up, re-create the conversation seeded with the prior messages.
-          if (error.isEmpty() && history.isNotEmpty()) {
-            LlmChatModelHelper.resetConversation(
-              model = model,
-              supportImage = false,
-              supportAudio = false,
-              systemInstruction = instruction,
-              tools = toolSets,
-              enableConversationConstrainedDecoding = true,
-              initialMessages = history,
-            )
-          }
-          onDone(error)
-        },
+        onDone = onDone,
         systemInstruction = instruction,
         tools = toolSets,
         enableConversationConstrainedDecoding = true,
+        // Seed this character's prior conversation directly at creation, so the model "remembers"
+        // the chat without a second resetConversation pass (which would rebuild the vocab FST and
+        // visibly slow down entering the chat).
+        initialMessages = history,
       )
     }
   }

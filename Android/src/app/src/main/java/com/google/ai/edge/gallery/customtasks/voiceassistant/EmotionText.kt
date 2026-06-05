@@ -42,13 +42,46 @@ private val speechSymbolRegex = Regex("[$SPEECH_SYMBOL_RANGES]")
 private val markdownRegex = Regex("[*_#`~|>\\\\^•]")
 private val whitespaceRegex = Regex("\\s+")
 
+// A complete fenced code block: ```lang\n ... ``` (optional language, multiline body). Removed from
+// spoken text entirely so the engine never reads code aloud.
+private val fencedCodeRegex = Regex("```[\\s\\S]*?```")
+// Inline code: `code` (single backticks, no newline inside).
+private val inlineCodeRegex = Regex("`[^`\\n]*`")
+
 /**
- * Returns [text] cleaned for text-to-speech: emoji, pictographs and markdown symbols removed and
- * whitespace collapsed, so the spoken reply sounds natural. May return an empty string (e.g. a reply
- * that was only an emoji) — callers should skip speaking in that case.
+ * Removes code from [text] so it is never read aloud: complete fenced code blocks and inline code
+ * are dropped. Used by both the after-complete and streaming TTS paths. The on-screen text is left
+ * untouched — only the spoken version loses the code.
+ */
+fun stripCodeForSpeech(text: String): String =
+  text.replace(fencedCodeRegex, " ").replace(inlineCodeRegex, " ")
+
+/**
+ * Returns the portion of a still-streaming reply [full] that is safe to speak: complete fenced code
+ * blocks are removed, and an *open* (not-yet-closed) fence — plus everything after it — is held back
+ * so a half-streamed code block is never spoken. Once the fence closes it is dropped by
+ * [stripCodeForSpeech]. The returned prefix is stable across calls (closed/removed blocks don't shift
+ * the already-spoken prefix), so callers can track spoken position against it.
+ */
+fun speakableStreamingView(full: String): String {
+  // Count fences; an odd count means the last one is still open.
+  val withoutClosed = full.replace(fencedCodeRegex, " ")
+  val openFence = withoutClosed.indexOf("```")
+  val held = if (openFence >= 0) withoutClosed.substring(0, openFence) else withoutClosed
+  return held.replace(inlineCodeRegex, " ")
+}
+
+/**
+ * Returns [text] cleaned for text-to-speech: code, emoji, pictographs and markdown symbols removed
+ * and whitespace collapsed, so the spoken reply sounds natural. May return an empty string (e.g. a
+ * reply that was only code or an emoji) — callers should skip speaking in that case.
  */
 fun sanitizeForSpeech(text: String): String =
-  text.replace(speechSymbolRegex, " ").replace(markdownRegex, " ").replace(whitespaceRegex, " ").trim()
+  stripCodeForSpeech(text)
+    .replace(speechSymbolRegex, " ")
+    .replace(markdownRegex, " ")
+    .replace(whitespaceRegex, " ")
+    .trim()
 
 // Conservative emoji ranges used to drive the visual effect (avoids arrows / geometric symbols).
 private val EMOJI_ANIM_RANGES =

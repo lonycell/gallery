@@ -112,6 +112,7 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantUiState
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import com.google.ai.edge.gallery.ui.common.MarkdownText
 import kotlinx.coroutines.delay
 
 // Shared palette with the subscription paywall for a consistent, futuristic look.
@@ -701,12 +702,22 @@ private fun VoiceChatBubble(
     ) {
       if (isTyping) {
         TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
-      } else {
+      } else if (isUser) {
+        // User input is plain text — render verbatim (no markdown parsing).
         Text(
           text = text,
           color = Color.White,
           fontSize = 15.sp,
           lineHeight = 21.sp,
+          modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+      } else {
+        // Assistant replies may contain markdown / code blocks — render them properly (code shows
+        // in a monospace block). The same text is read aloud with code stripped out (see TTS).
+        MarkdownText(
+          text = text,
+          smallFontSize = true,
+          textColor = Color.White,
           modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
         )
       }

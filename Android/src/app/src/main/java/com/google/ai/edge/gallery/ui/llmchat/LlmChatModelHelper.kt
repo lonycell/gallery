@@ -69,6 +69,7 @@ object LlmChatModelHelper : LlmModelHelper {
     tools: List<ToolProvider>,
     enableConversationConstrainedDecoding: Boolean,
     coroutineScope: CoroutineScope?,
+    initialMessages: List<Message>,
   ) {
     // Prepare options.
     val maxTokens =
@@ -171,6 +172,9 @@ object LlmChatModelHelper : LlmModelHelper {
               },
             systemInstruction = systemInstruction,
             tools = tools,
+            // Seed prior history here (when provided) so callers don't need a second
+            // resetConversation pass, which would rebuild the (expensive) vocab FST again.
+            initialMessages = initialMessages,
           )
         )
       ExperimentalFlags.enableConversationConstrainedDecoding = false

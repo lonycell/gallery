@@ -24,7 +24,6 @@ import com.google.ai.edge.litertlm.ToolSet
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import org.json.JSONArray
 import org.json.JSONObject
 
 private const val TAG = "AGWebSearch"
@@ -71,72 +70,134 @@ class WebSearchTools(private val agentTools: AgentTools? = null) : ToolSet {
   }
 }
 
-/** Key-free web search backed by DuckDuckGo's Instant Answer API. */
+/**
+ * Key-free web search. Primary source is DuckDuckGo's HTML ("lite") endpoint, which returns real
+ * organic results for general queries (unlike the Instant Answer API, which is empty for most
+ * searches). When that yields nothing, it falls back to the Wikipedia search API for a factual
+ * summary. Both are best-effort and parsed defensively; any failure returns "" so the caller reports
+ * "no results" rather than crashing.
+ */
 object WebSearch {
-  private const val MAX_RELATED = 6
+  private const val MAX_RESULTS = 6
+  private const val UA = "Mozilla/5.0 (Android) BeF-Ai/1.0"
 
   fun search(query: String): String {
+    val fromDuck = runCatching { searchDuckDuckGoHtml(query) }.getOrElse { e ->
+      Log.w(TAG, "DuckDuckGo HTML search failed", e)
+      ""
+    }
+    if (fromDuck.isNotBlank()) return fromDuck
+    // Fallback: Wikipedia search (robust for factual / entity queries).
+    return runCatching { searchWikipedia(query) }.getOrElse { e ->
+      Log.w(TAG, "Wikipedia search failed", e)
+      ""
+    }
+  }
+
+  // --- DuckDuckGo HTML (lite) ---
+
+  // The lite page renders each result as a link followed by a snippet table cell. We pull the
+  // visible link text (title) and the adjacent snippet, strip tags/entities, and list a few.
+  private val linkRegex =
+    Regex("""<a[^>]*class="result-link"[^>]*>(.*?)</a>""", RegexOption.DOT_MATCHES_ALL)
+  private val snippetRegex =
+    Regex("""<td[^>]*class="result-snippet"[^>]*>(.*?)</td>""", RegexOption.DOT_MATCHES_ALL)
+  private val tagRegex = Regex("""<[^>]+>""")
+
+  private fun searchDuckDuckGoHtml(query: String): String {
     val q = URLEncoder.encode(query, "UTF-8")
-    val url =
-      URL("https://api.duckduckgo.com/?q=$q&format=json&no_html=1&no_redirect=1&skip_disambig=1")
+    val url = URL("https://lite.duckduckgo.com/lite/?q=$q")
     val conn = (url.openConnection() as HttpURLConnection).apply {
       requestMethod = "GET"
       connectTimeout = 12_000
       readTimeout = 20_000
-      setRequestProperty("User-Agent", "Mozilla/5.0 (Android) BeF-Ai/1.0")
-      setRequestProperty("Accept", "application/json")
+      instanceFollowRedirects = true
+      setRequestProperty("User-Agent", UA)
+      setRequestProperty("Accept", "text/html")
+      setRequestProperty("Accept-Language", "ko,en;q=0.8")
     }
     val code = conn.responseCode
     if (code != HttpURLConnection.HTTP_OK) {
-      Log.w(TAG, "DuckDuckGo HTTP $code")
+      Log.w(TAG, "DuckDuckGo lite HTTP $code")
       return ""
     }
-    val text = conn.inputStream.use { String(it.readBytes(), Charsets.UTF_8) }
-    return parse(JSONObject(text))
-  }
+    val html = conn.inputStream.use { String(it.readBytes(), Charsets.UTF_8) }
+    val titles = linkRegex.findAll(html).map { cleanHtml(it.groupValues[1]) }.toList()
+    val snippets = snippetRegex.findAll(html).map { cleanHtml(it.groupValues[1]) }.toList()
 
-  private fun parse(json: JSONObject): String {
     val sb = StringBuilder()
-    val abstract = json.optString("AbstractText").ifBlank { json.optString("Abstract") }
-    if (abstract.isNotBlank()) sb.append(abstract).append('\n')
-    val answer = json.optString("Answer")
-    if (answer.isNotBlank()) sb.append(answer).append('\n')
-    val definition = json.optString("Definition")
-    if (definition.isNotBlank()) sb.append(definition).append('\n')
-
     var count = 0
-    val related = json.optJSONArray("RelatedTopics")
-    if (related != null) {
-      var i = 0
-      while (i < related.length() && count < MAX_RELATED) {
-        val item = related.optJSONObject(i)
-        if (item != null) {
-          val itemText = item.optString("Text")
-          if (itemText.isNotBlank()) {
-            sb.append("- ").append(itemText).append('\n')
-            count++
-          } else {
-            count += appendTopics(item.optJSONArray("Topics"), sb, MAX_RELATED - count)
-          }
+    var i = 0
+    while (i < titles.size && count < MAX_RESULTS) {
+      val title = titles[i]
+      val snippet = snippets.getOrNull(i).orEmpty()
+      if (title.isNotBlank() || snippet.isNotBlank()) {
+        sb.append("- ")
+        if (title.isNotBlank()) sb.append(title)
+        if (snippet.isNotBlank()) {
+          if (title.isNotBlank()) sb.append(": ")
+          sb.append(snippet)
         }
-        i++
+        sb.append('\n')
+        count++
       }
+      i++
     }
     return sb.toString().trim()
   }
 
-  private fun appendTopics(topics: JSONArray?, sb: StringBuilder, remaining: Int): Int {
-    if (topics == null || remaining <= 0) return 0
-    var added = 0
-    var j = 0
-    while (j < topics.length() && added < remaining) {
-      val t = topics.optJSONObject(j)?.optString("Text").orEmpty()
-      if (t.isNotBlank()) {
-        sb.append("- ").append(t).append('\n')
-        added++
-      }
-      j++
+  // --- Wikipedia search fallback ---
+
+  private fun searchWikipedia(query: String): String {
+    val lang = if (containsHangul(query)) "ko" else "en"
+    val q = URLEncoder.encode(query, "UTF-8")
+    val url =
+      URL(
+        "https://$lang.wikipedia.org/w/api.php?action=query&list=search&srsearch=$q" +
+          "&srlimit=$MAX_RESULTS&format=json&utf8=1"
+      )
+    val conn = (url.openConnection() as HttpURLConnection).apply {
+      requestMethod = "GET"
+      connectTimeout = 12_000
+      readTimeout = 20_000
+      setRequestProperty("User-Agent", UA)
+      setRequestProperty("Accept", "application/json")
     }
-    return added
+    if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+      Log.w(TAG, "Wikipedia HTTP ${conn.responseCode}")
+      return ""
+    }
+    val text = conn.inputStream.use { String(it.readBytes(), Charsets.UTF_8) }
+    val results = JSONObject(text).optJSONObject("query")?.optJSONArray("search") ?: return ""
+    val sb = StringBuilder()
+    var i = 0
+    while (i < results.length() && i < MAX_RESULTS) {
+      val item = results.optJSONObject(i)
+      val title = item?.optString("title").orEmpty()
+      val snippet = cleanHtml(item?.optString("snippet").orEmpty())
+      if (title.isNotBlank()) {
+        sb.append("- ").append(title)
+        if (snippet.isNotBlank()) sb.append(": ").append(snippet)
+        sb.append('\n')
+      }
+      i++
+    }
+    return sb.toString().trim()
   }
+
+  /** Strips HTML tags and decodes the few entities the sources commonly emit. */
+  private fun cleanHtml(raw: String): String =
+    tagRegex
+      .replace(raw, "")
+      .replace("&amp;", "&")
+      .replace("&lt;", "<")
+      .replace("&gt;", ">")
+      .replace("&quot;", "\"")
+      .replace("&#39;", "'")
+      .replace("&nbsp;", " ")
+      .replace(Regex("""\s+"""), " ")
+      .trim()
+
+  private fun containsHangul(text: String): Boolean =
+    text.any { it.code in 0xAC00..0xD7A3 || it.code in 0x1100..0x11FF || it.code in 0x3130..0x318F }
 }

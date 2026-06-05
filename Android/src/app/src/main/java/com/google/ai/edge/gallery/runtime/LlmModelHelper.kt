@@ -49,6 +49,9 @@ interface LlmModelHelper {
    * @param enableConversationConstrainedDecoding whether to enable constrained decoding for
    *   conversations.
    * @param coroutineScope optional coroutine scope for async execution.
+   * @param initialMessages prior conversation messages to seed the context with, so the model
+   *   "remembers" an existing chat. Seeded at conversation creation to avoid a second, redundant
+   *   conversation build (which is expensive — it rebuilds the constrained-decoding vocab FST).
    */
   fun initialize(
     context: Context,
@@ -61,6 +64,7 @@ interface LlmModelHelper {
     tools: List<ToolProvider> = listOf(),
     enableConversationConstrainedDecoding: Boolean = false,
     coroutineScope: CoroutineScope? = null,
+    initialMessages: List<Message> = listOf(),
   )
 
   /**
