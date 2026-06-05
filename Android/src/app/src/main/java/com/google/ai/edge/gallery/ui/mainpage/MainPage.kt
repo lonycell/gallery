@@ -497,6 +497,7 @@ private fun VoiceChatContent(
               onDeleteBefore = { index -> viewModel.deleteMessagesBefore(index) },
               onRegenerate = { index -> viewModel.regenerate(index) },
               onNewChat = { viewModel.clearConversation() },
+              onContinue = continueTalking,
             )
           // Downloaded but still loading — don't nag the user to open settings.
           modelDownloaded -> PreparingHint(characterName = selectedCharacter.name)
@@ -689,6 +690,7 @@ private fun Transcript(
   onDeleteBefore: (Int) -> Unit,
   onRegenerate: (Int) -> Unit,
   onNewChat: () -> Unit,
+  onContinue: () -> Unit,
 ) {
   val listState = rememberLazyListState()
   // Keep the latest message in view as it streams in.
@@ -701,7 +703,11 @@ private fun Transcript(
     state = listState,
     // Bottom-anchored so few messages sit near the input (the character's face stays visible above),
     // and faded at the top so older messages dissolve upward as they scroll away.
-    modifier = Modifier.fillMaxSize().topFade(),
+    // Double-tap the empty area to let the character keep talking (same as the background gesture).
+    modifier =
+      Modifier.fillMaxSize().topFade().pointerInput(Unit) {
+        detectTapGestures(onDoubleTap = { onContinue() })
+      },
     verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
   ) {
@@ -713,6 +719,7 @@ private fun Transcript(
         onDeleteBefore = { onDeleteBefore(index) },
         onRegenerate = { onRegenerate(index) },
         onNewChat = onNewChat,
+        onContinue = onContinue,
       )
     }
   }
@@ -727,6 +734,7 @@ private fun VoiceChatBubble(
   onDeleteBefore: () -> Unit,
   onRegenerate: () -> Unit,
   onNewChat: () -> Unit,
+  onContinue: () -> Unit,
 ) {
   val isUser = message.role == ChatMessage.Role.USER
   // An assistant reply that hasn't produced any text yet: show an animated typing indicator.
@@ -771,7 +779,11 @@ private fun VoiceChatBubble(
       modifier =
         Modifier.widthIn(max = 280.dp)
           .then(bubbleModifier)
-          .combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
+          .combinedClickable(
+            onClick = {},
+            onLongClick = { menuOpen = true },
+            onDoubleClick = { onContinue() },
+          )
     ) {
       if (isTyping) {
         TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
