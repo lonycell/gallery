@@ -78,6 +78,13 @@ private const val ASSISTANT_UTTERANCE_ID = "va_assistant_utterance"
 // the mic re-opens — long enough to absorb the brief think→speak gap, short enough to feel live.
 private const val CALL_RELISTEN_DEBOUNCE_MS = 450L
 
+// In call mode, after a turn that captured nothing (silence / no-match), wait this much longer before
+// re-opening the mic. This gives the recognizer time to fully reset (avoiding ERROR_RECOGNIZER_BUSY)
+// and keeps the loop from flickering open/closed while the user is simply quiet.
+private const val CALL_SILENT_COOLDOWN_MS = 1100L
+// Cap on how many consecutive silent turns lengthen the cooldown, so it never stalls indefinitely.
+private const val CALL_SILENT_BACKOFF_CAP = 3
+
 // Hidden prompt that makes the character open the conversation with a short, in-persona greeting.
 private const val GREETING_PROMPT =
   "(사용자가 방금 너와 대화를 시작했어. 너의 성격과 말투를 살려서, 짧고 자연스럽게 먼저 인사하며 " +
@@ -272,6 +279,11 @@ constructor(
   // on the first startListening() — which the screen only calls once permission is held — avoids that
   // stale-binding failure.
   private var speechRecognizer: SpeechRecognizer? = null
+
+  // Consecutive call-mode listening turns that captured nothing (silence / no-match / busy). Used to
+  // stretch the re-listen cooldown so the half-duplex loop never spins open/closed while the user is
+  // quiet. Reset to 0 whenever a turn yields real speech.
+  private var consecutiveSilentTurns = 0
 
   /** Lazily creates the system recognizer (must run on the main thread). Null if unavailable. */
   private fun ensureSpeechRecognizer(): SpeechRecognizer? {
@@ -588,6 +600,9 @@ constructor(
       recognizer.startListening(intent)
     } catch (e: Exception) {
       Log.e(TAG, "Failed to start listening", e)
+      // Count the failed start as a silent turn so the call loop backs off instead of hot-looping on
+      // a recognizer that keeps refusing to start.
+      consecutiveSilentTurns++
       _uiState.update { it.copy(isListening = false, error = "듣기를 시작할 수 없습니다.") }
     }
   }
@@ -636,6 +651,7 @@ constructor(
    * gap so the mic doesn't re-open prematurely.
    */
   private fun startCallLoop() {
+    consecutiveSilentTurns = 0
     callLoopJob?.cancel()
     callLoopJob =
       viewModelScope.launch {
@@ -651,7 +667,15 @@ constructor(
             if (relisten == null) {
               relisten =
                 launch {
-                  delay(CALL_RELISTEN_DEBOUNCE_MS)
+                  // Snappy after the assistant just spoke; progressively calmer after silent turns so
+                  // the mic doesn't flicker open/closed while the user is quiet (and so a busy engine
+                  // has time to reset).
+                  val cooldown =
+                    if (consecutiveSilentTurns > 0)
+                      CALL_SILENT_COOLDOWN_MS *
+                        consecutiveSilentTurns.coerceAtMost(CALL_SILENT_BACKOFF_CAP)
+                    else CALL_RELISTEN_DEBOUNCE_MS
+                  delay(cooldown)
                   val now = _uiState.value
                   if (
                     now.inputMode == ChatInputMode.CALL &&
@@ -720,7 +744,10 @@ constructor(
         }
       val trimmed = text.trim()
       if (trimmed.isNotEmpty()) {
+        consecutiveSilentTurns = 0
         submitUserInput(trimmed)
+      } else {
+        consecutiveSilentTurns++
       }
     }
   }
@@ -734,11 +761,26 @@ constructor(
   override fun onBufferReceived(buffer: ByteArray?) {}
 
   override fun onEndOfSpeech() {
-    _uiState.update { it.copy(isListening = false) }
+    // The user stopped speaking, but the recognizer is still decoding — results haven't arrived yet.
+    // Deliberately keep isListening=true until a terminal callback (onResults/onError). Clearing it
+    // here would let the call loop re-arm the mic mid-decode, which cancels the in-flight recognition
+    // (losing the user's words) and triggers ERROR_RECOGNIZER_BUSY — the open/close spin.
   }
 
   override fun onError(error: Int) {
+    val wasListening = uiState.value.isListening
     _uiState.update { it.copy(isListening = false) }
+    // No speech captured this turn → lengthen the call-mode cooldown so we don't spin.
+    if (wasListening) consecutiveSilentTurns++
+    // A busy/client error means the previous session hadn't fully released; reset the recognizer so
+    // the next startListening() gets a clean engine instead of bouncing on BUSY again.
+    if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) {
+      try {
+        speechRecognizer?.cancel()
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to cancel recognizer after error $error", e)
+      }
+    }
     // Ignore "no match" / "speech timeout" which are common and not worth surfacing loudly.
     if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
       Log.w(TAG, "SpeechRecognizer error: $error")
@@ -764,7 +806,11 @@ constructor(
     val text = matches?.firstOrNull().orEmpty().trim()
     _uiState.update { it.copy(isListening = false, partialTranscript = "") }
     if (text.isNotEmpty()) {
+      consecutiveSilentTurns = 0
       submitUserInput(text)
+    } else {
+      // Empty result counts as a silent turn (back off the next re-listen).
+      consecutiveSilentTurns++
     }
   }
 
