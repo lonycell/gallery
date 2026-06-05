@@ -992,36 +992,25 @@ private fun MicOrb(
         ),
       label = "pulse",
     )
-  val angle by
-    transition.animateFloat(
-      initialValue = 0f,
-      targetValue = 360f,
-      animationSpec =
-        infiniteRepeatable(
-          animation = tween(durationMillis = 6000, easing = LinearEasing),
-          repeatMode = RepeatMode.Restart,
-        ),
-      label = "angle",
-    )
 
   Box(modifier = modifier.size(haloSize), contentAlignment = Alignment.Center) {
-    // Rotating glow halo.
+    // Soft circular glow halo. A radial gradient that fades to fully transparent before the edge
+    // keeps the corners empty, so the glow is always a clean circle (no rotating-square artifact).
     Box(
       modifier =
         Modifier.size(haloSize)
           .graphicsLayer {
             scaleX = pulse
             scaleY = pulse
-            rotationZ = angle
-            alpha = if (enabled) 0.55f else 0.2f
+            alpha = if (enabled) 0.6f else 0.22f
           }
-          .blur(coreSize * 0.1f)
+          .blur(coreSize * 0.12f)
           .clip(CircleShape)
           .background(
-            Brush.sweepGradient(
+            Brush.radialGradient(
               listOf(
-                coreColor.copy(alpha = 0f),
-                coreColor.copy(alpha = 0.9f),
+                coreColor.copy(alpha = 0.95f),
+                coreColor.copy(alpha = 0.45f),
                 coreColor.copy(alpha = 0f),
               )
             )
@@ -1134,17 +1123,6 @@ private fun CallButton(
         ),
       label = "pulse",
     )
-  val angle by
-    transition.animateFloat(
-      initialValue = 0f,
-      targetValue = 360f,
-      animationSpec =
-        infiniteRepeatable(
-          animation = tween(durationMillis = 7000, easing = LinearEasing),
-          repeatMode = RepeatMode.Restart,
-        ),
-      label = "angle",
-    )
   // Expanding ripple ring, emphasised while active (live mic / speaking).
   val ripple by
     transition.animateFloat(
@@ -1172,23 +1150,23 @@ private fun CallButton(
           .clip(CircleShape)
           .background(glowColor.copy(alpha = 0.5f))
     )
-    // Rotating glow halo.
+    // Soft circular glow halo. A radial gradient that fades to fully transparent before the edge
+    // keeps the corners empty, so the glow stays a clean circle (no rotating-square artifact).
     Box(
       modifier =
         Modifier.size(haloSize)
           .graphicsLayer {
             scaleX = pulse
             scaleY = pulse
-            rotationZ = angle
             alpha = 0.6f
           }
           .blur(12.dp)
           .clip(CircleShape)
           .background(
-            Brush.sweepGradient(
+            Brush.radialGradient(
               listOf(
-                glowColor.copy(alpha = 0f),
-                glowColor.copy(alpha = 0.95f),
+                glowColor.copy(alpha = 0.9f),
+                glowColor.copy(alpha = 0.4f),
                 glowColor.copy(alpha = 0f),
               )
             )
