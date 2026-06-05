@@ -61,6 +61,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +73,10 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "AGVoiceAssistant"
 private const val ASSISTANT_UTTERANCE_ID = "va_assistant_utterance"
+
+// In call mode, how long the assistant must be fully idle (not listening/thinking/speaking) before
+// the mic re-opens — long enough to absorb the brief think→speak gap, short enough to feel live.
+private const val CALL_RELISTEN_DEBOUNCE_MS = 450L
 
 // Hidden prompt that makes the character open the conversation with a short, in-persona greeting.
 private const val GREETING_PROMPT =
@@ -156,6 +161,14 @@ enum class TtsSpeakMode {
   STREAMING,
 }
 
+/** How the user provides input in the chat. */
+enum class ChatInputMode {
+  /** Text field + one-shot mic (tap to listen once). */
+  STANDARD,
+  /** Hands-free "phone call": the mic re-opens automatically after each assistant turn. */
+  CALL,
+}
+
 /** Detailed state of the downloadable neural speech recognizer (mirrors [NeuralVoiceState]). */
 data class NeuralSttState(
   val stage: NeuralVoiceStage = NeuralVoiceStage.NOT_INSTALLED,
@@ -198,6 +211,8 @@ data class VoiceAssistantUiState(
   val skillCount: Int = 0,
   /** A short status line shown while the assistant is invoking a tool/skill (empty when idle). */
   val toolActivity: String = "",
+  /** Whether input is the standard text+one-shot-mic, or hands-free phone-call mode. */
+  val inputMode: ChatInputMode = ChatInputMode.STANDARD,
 )
 
 @HiltViewModel
@@ -551,6 +566,80 @@ constructor(
     }
     _uiState.update { it.copy(isListening = false) }
   }
+
+  // region Input mode (standard vs hands-free call)
+
+  private var callLoopJob: Job? = null
+
+  /** Switches between standard input (text + one-shot mic) and hands-free call mode. */
+  fun setInputMode(mode: ChatInputMode) {
+    if (mode == _uiState.value.inputMode) {
+      return
+    }
+    _uiState.update { it.copy(inputMode = mode) }
+    if (mode == ChatInputMode.CALL) startCallLoop() else stopCallLoop()
+  }
+
+  fun toggleInputMode() {
+    setInputMode(
+      if (_uiState.value.inputMode == ChatInputMode.CALL) ChatInputMode.STANDARD
+      else ChatInputMode.CALL
+    )
+  }
+
+  /**
+   * Half-duplex call loop: a single observer of [uiState] that re-opens the mic whenever the
+   * assistant's turn is fully over — but never while it is listening, thinking, or speaking, so the
+   * assistant's own TTS is never captured (echo-free). The debounce absorbs the brief think→speak
+   * gap so the mic doesn't re-open prematurely.
+   */
+  private fun startCallLoop() {
+    callLoopJob?.cancel()
+    callLoopJob =
+      viewModelScope.launch {
+        var relisten: Job? = null
+        uiState.collect { s ->
+          val idle =
+            s.inputMode == ChatInputMode.CALL &&
+              pendingModel != null &&
+              !s.isListening &&
+              !s.isThinking &&
+              !s.isSpeaking
+          if (idle) {
+            if (relisten == null) {
+              relisten =
+                launch {
+                  delay(CALL_RELISTEN_DEBOUNCE_MS)
+                  val now = _uiState.value
+                  if (
+                    now.inputMode == ChatInputMode.CALL &&
+                      !now.isListening &&
+                      !now.isThinking &&
+                      !now.isSpeaking
+                  ) {
+                    startListening()
+                  }
+                  relisten = null
+                }
+            }
+          } else {
+            relisten?.cancel()
+            relisten = null
+          }
+        }
+      }
+    // Open the mic right away on entering call mode.
+    startListening()
+  }
+
+  private fun stopCallLoop() {
+    callLoopJob?.cancel()
+    callLoopJob = null
+    stopListening()
+    stopSpeaking()
+  }
+
+  // endregion
 
   // Whether the in-progress capture is using the neural recorder (vs the system recognizer).
   private var usingNeuralCapture = false

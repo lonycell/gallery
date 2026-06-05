@@ -59,6 +59,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Refresh
@@ -83,6 +84,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -96,6 +99,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -105,6 +109,7 @@ import com.google.ai.edge.gallery.common.PermissionResult
 import com.google.ai.edge.gallery.customtasks.agentchat.McpToolCallPermissionDialog
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
 import com.google.ai.edge.gallery.customtasks.agentchat.SkillManagerViewModel
+import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatInputMode
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessage
 import com.google.ai.edge.gallery.customtasks.voiceassistant.EmotionCue
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
@@ -122,6 +127,26 @@ private val AccentPink = Color(0xFFE15BD0)
 private val ListeningColor = Color(0xFF34E1C4)
 private val ThinkingColor = Color(0xFF9B7BFF)
 private val SpeakingColor = Color(0xFF4D8DFF)
+
+/**
+ * Fades the top edge of a (scrolling) composable to transparent, so content scrolling up appears to
+ * dissolve away. Uses an offscreen layer (`alpha < 1`) + a `DstIn` vertical gradient mask.
+ */
+private fun Modifier.topFade(fadeFraction: Float = 0.16f): Modifier =
+  this.graphicsLayer { alpha = 0.99f }
+    .drawWithContent {
+      drawContent()
+      drawRect(
+        brush =
+          Brush.verticalGradient(
+            0f to Color.Transparent,
+            1f to Color.Black,
+            startY = 0f,
+            endY = size.height * fadeFraction,
+          ),
+        blendMode = BlendMode.DstIn,
+      )
+    }
 
 /**
  * The app's main screen: a futuristic voice-call style chat with the persona on the hero image.
@@ -360,6 +385,21 @@ private fun VoiceChatContent(
     }
   }
 
+  // Entering hands-free call mode needs the mic permission up front (the mic stays open).
+  val callPermissionLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      if (granted) viewModel.setInputMode(ChatInputMode.CALL)
+    }
+  val enterCallMode: () -> Unit = {
+    if (modelReady) {
+      val granted =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+          PackageManager.PERMISSION_GRANTED
+      if (granted) viewModel.setInputMode(ChatInputMode.CALL)
+      else callPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+  }
+
   // Latest emotion cue (emoji in a reply) to animate as a floating effect.
   var emotionCue by remember { mutableStateOf<EmotionCue?>(null) }
   LaunchedEffect(Unit) { viewModel.emotionCues.collect { emotionCue = it } }
@@ -478,19 +518,33 @@ private fun VoiceChatContent(
         ToolActivityChip(label = uiState.toolActivity)
       }
 
-      // Input bar: text field + the merged mic-orb.
-      InputBar(
-        enabled = modelReady,
-        disabledPlaceholder = if (modelDownloaded) "잠시만요, 준비 중이에요…" else "설정에서 모델 받기",
-        isListening = uiState.isListening,
-        isThinking = uiState.isThinking,
-        isSpeaking = uiState.isSpeaking,
-        onSendText = { text ->
-          targetModel?.let { viewModel.sendStarter(text, it) }
-        },
-        onMicClick = toggleMic,
-        modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp, top = 4.dp),
-      )
+      // Bottom controls: standard (text + one-shot mic) or hands-free call mode.
+      when (uiState.inputMode) {
+        ChatInputMode.CALL ->
+          CallControls(
+            enabled = modelReady,
+            isListening = uiState.isListening,
+            isThinking = uiState.isThinking,
+            isSpeaking = uiState.isSpeaking,
+            onTapOrb = { if (uiState.isSpeaking) viewModel.stopSpeaking() },
+            onLongPressOrb = { viewModel.setInputMode(ChatInputMode.STANDARD) },
+            onEndCall = { viewModel.setInputMode(ChatInputMode.STANDARD) },
+            modifier = Modifier.padding(bottom = 20.dp, top = 6.dp),
+          )
+        ChatInputMode.STANDARD ->
+          InputBar(
+            enabled = modelReady,
+            disabledPlaceholder =
+              if (modelDownloaded) "잠시만요, 준비 중이에요…" else "설정에서 모델 받기",
+            isListening = uiState.isListening,
+            isThinking = uiState.isThinking,
+            isSpeaking = uiState.isSpeaking,
+            onSendText = { text -> targetModel?.let { viewModel.sendStarter(text, it) } },
+            onMicClick = toggleMic,
+            onMicLongClick = enterCallMode,
+            modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp, top = 4.dp),
+          )
+      }
     }
 
     // Floating emoji emotion effect, on top of everything (non-interactive).
@@ -628,8 +682,10 @@ private fun Transcript(
   }
   LazyColumn(
     state = listState,
-    modifier = Modifier.fillMaxSize(),
-    verticalArrangement = Arrangement.spacedBy(10.dp),
+    // Bottom-anchored so few messages sit near the input (the character's face stays visible above),
+    // and faded at the top so older messages dissolve upward as they scroll away.
+    modifier = Modifier.fillMaxSize().topFade(),
+    verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
   ) {
     itemsIndexed(messages) { index, message ->
@@ -827,6 +883,7 @@ private fun InputBar(
   isSpeaking: Boolean,
   onSendText: (String) -> Unit,
   onMicClick: () -> Unit,
+  onMicLongClick: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   var text by remember { mutableStateOf("") }
@@ -886,13 +943,14 @@ private fun InputBar(
 
     Spacer(modifier = Modifier.width(10.dp))
 
-    // The merged listening-orb + microphone control.
+    // The merged listening-orb + microphone control. Long-press to enter hands-free call mode.
     MicOrb(
       enabled = enabled,
       isListening = isListening,
       isThinking = isThinking,
       isSpeaking = isSpeaking,
       onClick = { if (enabled) onMicClick() },
+      onLongClick = { if (enabled) onMicLongClick() },
     )
   }
 }
@@ -902,6 +960,7 @@ private fun InputBar(
  * rotating halo whose colour reflects the current state (listening / thinking / speaking / idle),
  * with a mic (or stop) icon in the centre.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MicOrb(
   enabled: Boolean,
@@ -909,6 +968,9 @@ private fun MicOrb(
   isThinking: Boolean,
   isSpeaking: Boolean,
   onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+  onLongClick: () -> Unit = {},
+  coreSize: Dp = 60.dp,
 ) {
   val active = isListening || isThinking || isSpeaking
   val coreColor =
@@ -918,6 +980,8 @@ private fun MicOrb(
       isSpeaking -> SpeakingColor
       else -> AccentPurple
     }
+  val haloSize = coreSize * 1.27f
+  val iconSize = coreSize * 0.44f
 
   val transition = rememberInfiniteTransition(label = "micorb")
   val pulse by
@@ -943,18 +1007,18 @@ private fun MicOrb(
       label = "angle",
     )
 
-  Box(contentAlignment = Alignment.Center, modifier = Modifier.size(76.dp)) {
+  Box(modifier = modifier.size(haloSize), contentAlignment = Alignment.Center) {
     // Rotating glow halo.
     Box(
       modifier =
-        Modifier.size(76.dp)
+        Modifier.size(haloSize)
           .graphicsLayer {
             scaleX = pulse
             scaleY = pulse
             rotationZ = angle
             alpha = if (enabled) 0.55f else 0.2f
           }
-          .blur(6.dp)
+          .blur(coreSize * 0.1f)
           .clip(CircleShape)
           .background(
             Brush.sweepGradient(
@@ -969,7 +1033,7 @@ private fun MicOrb(
     // Solid mic core.
     Box(
       modifier =
-        Modifier.size(60.dp)
+        Modifier.size(coreSize)
           .clip(CircleShape)
           .background(
             if (enabled) {
@@ -980,14 +1044,63 @@ private fun MicOrb(
               )
             }
           )
-          .clickable { onClick() },
+          .combinedClickable(onClick = onClick, onLongClick = onLongClick),
       contentAlignment = Alignment.Center,
     ) {
       Icon(
         imageVector = if (isListening) Icons.Rounded.Stop else Icons.Rounded.Mic,
         contentDescription = if (isListening) "듣기 중지" else "듣기 시작",
         tint = Color.White,
-        modifier = Modifier.size(26.dp),
+        modifier = Modifier.size(iconSize),
+      )
+    }
+  }
+}
+
+/**
+ * Hands-free "phone call" controls: a large state-reactive mic-orb centred at the bottom, plus a red
+ * hang-up button. Tap the orb to interrupt the assistant (barge-in); long-press the orb or tap
+ * hang-up to return to standard input.
+ */
+@Composable
+private fun CallControls(
+  enabled: Boolean,
+  isListening: Boolean,
+  isThinking: Boolean,
+  isSpeaking: Boolean,
+  onTapOrb: () -> Unit,
+  onLongPressOrb: () -> Unit,
+  onEndCall: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Column(
+    modifier = modifier.fillMaxWidth(),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.spacedBy(18.dp),
+  ) {
+    MicOrb(
+      enabled = enabled,
+      isListening = isListening,
+      isThinking = isThinking,
+      isSpeaking = isSpeaking,
+      onClick = onTapOrb,
+      onLongClick = onLongPressOrb,
+      coreSize = 104.dp,
+    )
+    // Hang-up (return to standard input).
+    Box(
+      modifier =
+        Modifier.size(60.dp)
+          .clip(CircleShape)
+          .background(Color(0xFFE5484D))
+          .clickable { onEndCall() },
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(
+        Icons.Rounded.CallEnd,
+        contentDescription = "통화 종료",
+        tint = Color.White,
+        modifier = Modifier.size(28.dp),
       )
     }
   }
