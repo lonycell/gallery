@@ -219,7 +219,8 @@ class CloudTtsService @Inject constructor() {
         name = "ElevenLabs",
         baseUrl = "https://api.elevenlabs.io",
         // SAMPLE — replace with a real ElevenLabs API key.
-        apiToken = "sk_SAMPLE_ELEVENLABS_API_KEY",
+        // apiToken = "sk_SAMPLE_ELEVENLABS_API_KEY",
+        apiToken = "2d4bd2df1fdd0f22fdcd16b6cf28df56",
         voices =
           listOf(
             CloudTtsVoice("21m00Tcm4TlvDq8ikWAM", "Rachel"),
@@ -233,8 +234,8 @@ class CloudTtsService @Inject constructor() {
         name = "Clova",
         baseUrl = "https://naveropenapi.apigw.ntruss.com",
         // SAMPLE — replace with real Naver Cloud Platform credentials.
-        apiToken = "SAMPLE_CLOVA_CLIENT_SECRET",
-        clientId = "SAMPLE_CLOVA_CLIENT_ID",
+        apiToken = "dxlo1m8imG9NVr6QOgRpmtiz5cVQtKH1zXm608Gm", //"SAMPLE_CLOVA_CLIENT_SECRET",
+        clientId = "s3uz7c10rx", //"SAMPLE_CLOVA_CLIENT_ID",
         voices =
           listOf(
             CloudTtsVoice("nara", "나라 (여)"),
