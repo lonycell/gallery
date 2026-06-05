@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ Mirrors Android app/src/main/AndroidManifest.xml: app label, launcher, deep-link
+ scheme, portrait-only orientation, and the runtime permissions the Android app
+ declares (camera, microphone, calendar, notifications).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>ko</string>
+	<key>CFBundleDisplayName</key>
+	<string>찐친 Ai</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.15</string>
+	<key>CFBundleVersion</key>
+	<string>33</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
+	<!-- Portrait only — mirrors android:screenOrientation="portrait". -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<!-- Deep-link scheme: com.google.ai.edge.gallery:// (see GalleryNavGraph). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.google.aiedge.gallery</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.google.ai.edge.gallery</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Runtime permission usage descriptions (Android <uses-permission> equivalents). -->
+	<key>NSCameraUsageDescription</key>
+	<string>Used by Ask Image and the live camera view to capture photos for the on-device model.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Used by Audio Scribe, the voice assistant, and hold-to-dictate to record audio for on-device speech models.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Used to transcribe your speech to text for voice input.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Used by the calendar Agent Skills to create and read calendar events.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Used to pick images from your album for Ask Image and to save generated images.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Used to save generated or captured images to your photo album.</string>
+	<!-- Background audio + processing for long-running model downloads and TTS playback. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Nunito font family (res/font/nunito_*.ttf) used by AppTypography. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>nunito_regular.ttf</string>
+		<string>nunito_extralight.ttf</string>
+		<string>nunito_light.ttf</string>
+		<string>nunito_medium.ttf</string>
+		<string>nunito_semibold.ttf</string>
+		<string>nunito_bold.ttf</string>
+		<string>nunito_extrabold.ttf</string>
+		<string>nunito_black.ttf</string>
+	</array>
+</dict>
+</plist>

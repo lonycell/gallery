@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/usr/libexec/java_home -V)",
+      "Read(//Users/utop/sdk/**)",
+      "Bash(./gradlew --stop)",
+      "Bash(./gradlew assembleRelease)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(gh auth *)",
+      "Bash(ssh -T git@github.com -o StrictHostKeyChecking=accept-new)",
+      "Read(//Users/utop/.ssh/**)",
+      "Bash(mv .claude/projects/-Users-utop-works-android-gallery-ondev/memory/navigation-flow.md /Users/utop/.claude/projects/-Users-utop-works-android-gallery-ondev/memory/navigation-flow.md)",
+      "Bash(rm -rf .claude/projects)",
+      "Read(//Users/utop/.claude/projects/-Users-utop-works-android-gallery-ondev/memory/**)",
+      "Bash(./gradlew :app:assembleDebug)"
+    ]
+  }
+}
