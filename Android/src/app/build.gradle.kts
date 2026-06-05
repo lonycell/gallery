@@ -145,6 +145,12 @@ dependencies {
   implementation(libs.firebase.messaging)
   implementation(libs.androidx.exifinterface)
   implementation(libs.moshi.kotlin)
+  // Character backgrounds: image/GIF (Coil), short looping video (Media3 ExoPlayer), Lottie.
+  implementation(libs.coil.compose)
+  implementation(libs.coil.gif)
+  implementation(libs.media3.exoplayer)
+  implementation(libs.media3.ui)
+  implementation(libs.lottie.compose)
   kapt(libs.hilt.android.compiler)
   testImplementation(libs.junit)
   androidTestImplementation(libs.androidx.junit)

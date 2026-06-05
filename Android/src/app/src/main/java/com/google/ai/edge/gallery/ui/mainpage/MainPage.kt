@@ -73,6 +73,8 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.People
@@ -425,14 +427,18 @@ private fun VoiceChatContent(
   var emotionCue by remember { mutableStateOf<EmotionCue?>(null) }
   LaunchedEffect(Unit) { viewModel.emotionCues.collect { emotionCue = it } }
 
+  // Play/pause for animated character backgrounds (GIF / video / Lottie). Resets to playing whenever
+  // the character changes.
+  var backgroundPlaying by remember(selectedCharacter.id) { mutableStateOf(true) }
+
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
-    // Hero: the selected character, full-bleed like the subscription page (portrait photos), with a
-    // gradient that's light over the face and fades smoothly into the dark chat area below.
-    Image(
-      painter = painterResource(selectedCharacter.imageRes),
+    // Hero: the selected character's background, full-bleed (cropped) like the subscription page. It
+    // may be a still image, GIF, short video, or Lottie — all framed identically. A gradient over it
+    // is light at the face and fades into the dark chat area below.
+    CharacterBackgroundView(
+      background = selectedCharacter.background,
+      playing = backgroundPlaying,
       contentDescription = selectedCharacter.name,
-      contentScale = ContentScale.Crop,
-      alignment = Alignment.TopCenter,
       modifier = Modifier.fillMaxSize(),
     )
     Box(
@@ -468,6 +474,17 @@ private fun VoiceChatContent(
             color = Color.White.copy(alpha = 0.7f),
             fontSize = 12.sp,
           )
+        }
+        if (selectedCharacter.background.isAnimated) {
+          FrostedCircleButton(onClick = { backgroundPlaying = !backgroundPlaying }) {
+            Icon(
+              if (backgroundPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+              contentDescription = if (backgroundPlaying) "배경 정지" else "배경 재생",
+              tint = Color.White,
+              modifier = Modifier.size(22.dp),
+            )
+          }
+          Spacer(modifier = Modifier.width(10.dp))
         }
         FrostedCircleButton(onClick = onOpenCharacters) {
           Icon(

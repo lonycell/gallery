@@ -50,6 +50,13 @@ data class Character(
   val priceCoins: Int,
   /** Whether this character is available to everyone without unlocking. */
   val freeByDefault: Boolean,
+  /**
+   * The chat-screen background. Defaults to the still [imageRes], but can be a GIF, short video, or
+   * Lottie animation per character. Rendered full-bleed (cropped) by `CharacterBackgroundView`. The
+   * still [imageRes] is still used for the avatar, the character cards, and as a poster/fallback.
+   */
+  val background: CharacterBackground =
+    CharacterBackground.StaticImage(MediaSource.Res(imageRes)),
 ) {
   /** The system instruction that primes the LLM to role-play this character in voice chat. */
   val systemPrompt: String
