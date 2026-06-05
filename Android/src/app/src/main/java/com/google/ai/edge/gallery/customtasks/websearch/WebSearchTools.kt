@@ -50,12 +50,15 @@ class WebSearchTools(private val agentTools: AgentTools? = null) : ToolSet {
     @ToolParam(description = "The search query, phrased for a search engine, in the user's language.")
     query: String
   ): Map<String, String> {
+    // DIAGNOSTIC: confirms the model actually emitted a tool call and the runtime invoked us.
+    Log.i(TAG, "searchWeb tool INVOKED — query='$query'")
     if (query.isBlank()) {
       return mapOf("status" to "failed", "error" to "empty query")
     }
     agentTools?.postProgress("인터넷 검색 중…", true)
     return try {
       val results = WebSearch.search(query)
+      Log.i(TAG, "searchWeb results length=${results.length} (blank=${results.isBlank()})")
       if (results.isBlank()) {
         mapOf("status" to "empty", "note" to "No relevant results were found.")
       } else {

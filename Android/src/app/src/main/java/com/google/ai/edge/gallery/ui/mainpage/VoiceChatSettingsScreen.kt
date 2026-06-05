@@ -79,6 +79,7 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewM
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import com.google.ai.edge.gallery.ui.common.humanReadableSize
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
 /**
@@ -427,6 +428,15 @@ private fun LlmModelRow(
   val received = downloadStatus?.receivedBytes ?: 0L
   val percent = if (total > 0L) ((received * 100) / total).toInt().coerceIn(0, 100) else -1
   val showDeterminate = downloading && !unzipping && percent in 0..100
+  // Human-readable download size from the allowlist (model file + any extra data files). Prefer the
+  // precomputed total, then the raw model size, then the in-progress total once reported.
+  val sizeBytes =
+    when {
+      model.totalBytes > 0L -> model.totalBytes
+      model.sizeInBytes > 0L -> model.sizeInBytes
+      else -> total
+    }
+  val sizeLabel = if (sizeBytes > 0L) sizeBytes.humanReadableSize() else ""
 
   Column(
     modifier =
@@ -445,10 +455,14 @@ private fun LlmModelRow(
         Text(
           text =
             when {
-              selected -> "사용 중"
-              downloaded -> "탭하여 선택"
+              selected -> if (sizeLabel.isNotEmpty()) "사용 중 · $sizeLabel" else "사용 중"
+              downloaded -> if (sizeLabel.isNotEmpty()) "탭하여 선택 · $sizeLabel" else "탭하여 선택"
               unzipping -> "압축 해제 중…"
-              downloading -> if (percent in 0..100) "다운로드 중 $percent%" else "다운로드 중…"
+              downloading ->
+                if (percent in 0..100)
+                  "다운로드 중 $percent% · ${received.humanReadableSize()} / ${total.humanReadableSize()}"
+                else "다운로드 중…"
+              sizeLabel.isNotEmpty() -> "다운로드 필요 · $sizeLabel"
               else -> "다운로드 필요"
             },
           style = MaterialTheme.typography.bodySmall,

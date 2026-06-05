@@ -1313,7 +1313,14 @@ constructor(
       model.runtimeHelper.runInference(
         model = model,
         input = input,
-        resultListener = { partialResult, done, _ ->
+        resultListener = { partialResult, done, thought ->
+          // DIAGNOSTIC: shows exactly what the model streams (content vs control/thought tokens) so
+          // we can tell whether it is emitting a tool call or just chatting. Remove once resolved.
+          Log.i(
+            TAG,
+            "stream partial=${partialResult.take(80).replace("\n", "\\n")} done=$done " +
+              "thought=${thought?.take(40)?.replace("\n", "\\n")}",
+          )
           if (activeConversationId == convId) {
             if (!partialResult.startsWith("<ctrl")) {
               builder.append(partialResult)

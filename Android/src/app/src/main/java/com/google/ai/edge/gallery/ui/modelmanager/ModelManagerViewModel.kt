@@ -994,8 +994,11 @@ constructor(
             }
 
             // The Voice Assistant ships no model of its own; it reuses the same chat LLMs so users
-            // can download and switch between them (Gemma 3, Gemma 4, Qwen, …) like in chat.
-            if (taskType == BuiltInTaskId.LLM_CHAT) {
+            // can download and switch between them (Gemma 3, Gemma 4, Qwen, …) like in chat. It also
+            // surfaces the function-calling models (the ones offered for Mobile Actions), since
+            // general chat LLMs rarely emit reliable tool calls — these let the assistant actually
+            // invoke its tools (web search, etc.).
+            if (taskType == BuiltInTaskId.LLM_CHAT || taskType == BuiltInTaskId.LLM_MOBILE_ACTIONS) {
               curTasks
                 .find { it.id == VOICE_ASSISTANT_TASK_ID }
                 ?.let { vaTask -> if (!vaTask.models.contains(model)) vaTask.models.add(model) }
