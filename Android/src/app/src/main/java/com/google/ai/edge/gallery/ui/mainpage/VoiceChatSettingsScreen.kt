@@ -71,6 +71,7 @@ import com.google.ai.edge.gallery.customtasks.speech.WHISPER_KO_STT_MODEL_NAME
 import com.google.ai.edge.gallery.customtasks.voiceassistant.NeuralSttState
 import com.google.ai.edge.gallery.customtasks.voiceassistant.NeuralVoiceStage
 import com.google.ai.edge.gallery.customtasks.voiceassistant.NeuralVoiceState
+import com.google.ai.edge.gallery.customtasks.voiceassistant.SpeechPatience
 import com.google.ai.edge.gallery.customtasks.voiceassistant.SttEngine
 import com.google.ai.edge.gallery.customtasks.voiceassistant.TtsSpeakMode
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
@@ -206,6 +207,28 @@ fun VoiceChatSettingsScreen(
             }
           }
         }
+
+        // Endpointing patience: how long to wait in silence before ending the user's turn, so a
+        // brief pause doesn't cut off longer speech.
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+          "발화 종료 감지 (말이 끊기면 더 길게)",
+          style = MaterialTheme.typography.labelLarge,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          ChoiceChip("보통", uiState.speechPatience == SpeechPatience.NORMAL) {
+            viewModel.setSpeechPatience(SpeechPatience.NORMAL)
+          }
+          ChoiceChip("길게", uiState.speechPatience == SpeechPatience.RELAXED) {
+            viewModel.setSpeechPatience(SpeechPatience.RELAXED)
+          }
+          ChoiceChip("매우 길게", uiState.speechPatience == SpeechPatience.PATIENT) {
+            viewModel.setSpeechPatience(SpeechPatience.PATIENT)
+          }
+        }
+
         if (neuralSttModel != null && !senseReady) {
           Spacer(modifier = Modifier.height(10.dp))
           NeuralSttDownloadRow(

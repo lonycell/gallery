@@ -169,6 +169,24 @@ enum class ChatInputMode {
   CALL,
 }
 
+/**
+ * How long the recognizer waits in silence before deciding the user is done speaking (endpointing).
+ * Larger values let the user pause mid-thought / speak longer without being cut off. These are hints
+ * to [android.speech.SpeechRecognizer]; some engines cap or ignore them.
+ */
+enum class SpeechPatience(
+  val completeSilenceMs: Int,
+  val possiblyCompleteSilenceMs: Int,
+  val minLengthMs: Int,
+) {
+  /** Snappy — ends quickly on a short pause. */
+  NORMAL(completeSilenceMs = 900, possiblyCompleteSilenceMs = 700, minLengthMs = 0),
+  /** Default — tolerates natural pauses so longer sentences aren't cut off. */
+  RELAXED(completeSilenceMs = 2000, possiblyCompleteSilenceMs = 1500, minLengthMs = 1500),
+  /** Very patient — for long, multi-sentence speaking with pauses. */
+  PATIENT(completeSilenceMs = 3500, possiblyCompleteSilenceMs = 2500, minLengthMs = 2500),
+}
+
 /** Detailed state of the downloadable neural speech recognizer (mirrors [NeuralVoiceState]). */
 data class NeuralSttState(
   val stage: NeuralVoiceStage = NeuralVoiceStage.NOT_INSTALLED,
@@ -213,6 +231,8 @@ data class VoiceAssistantUiState(
   val toolActivity: String = "",
   /** Whether input is the standard text+one-shot-mic, or hands-free phone-call mode. */
   val inputMode: ChatInputMode = ChatInputMode.STANDARD,
+  /** How long the recognizer waits in silence before ending the user's turn. */
+  val speechPatience: SpeechPatience = SpeechPatience.RELAXED,
 )
 
 @HiltViewModel
@@ -511,6 +531,13 @@ constructor(
     _uiState.update { it.copy(speakMode = mode) }
   }
 
+  /** Sets how long the recognizer waits in silence before ending the user's turn. */
+  fun setSpeechPatience(patience: SpeechPatience) {
+    if (patience != _uiState.value.speechPatience) {
+      _uiState.update { it.copy(speechPatience = patience) }
+    }
+  }
+
   // region Speech recognition (STT)
 
   /** Starts listening to the microphone. The caller must already hold RECORD_AUDIO permission. */
@@ -534,12 +561,27 @@ constructor(
       _uiState.update { it.copy(error = "이 기기에서는 음성 인식을 사용할 수 없습니다.") }
       return
     }
+    val patience = _uiState.value.speechPatience
     val intent =
       Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLocale.toLanguageTag())
         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        // Endpointing: wait longer in silence before deciding the user is finished, so a brief pause
+        // doesn't cut off a longer utterance. (Hints; some engines cap/ignore them.)
+        putExtra(
+          RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+          patience.completeSilenceMs,
+        )
+        putExtra(
+          RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+          patience.possiblyCompleteSilenceMs,
+        )
+        putExtra(
+          RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
+          patience.minLengthMs,
+        )
       }
     _uiState.update { it.copy(isListening = true, partialTranscript = "", error = "") }
     try {
