@@ -522,12 +522,9 @@ private fun VoiceChatContent(
       when (uiState.inputMode) {
         ChatInputMode.CALL ->
           CallControls(
-            enabled = modelReady,
             isListening = uiState.isListening,
             isThinking = uiState.isThinking,
             isSpeaking = uiState.isSpeaking,
-            onTapOrb = { if (uiState.isSpeaking) viewModel.stopSpeaking() },
-            onLongPressOrb = { viewModel.setInputMode(ChatInputMode.STANDARD) },
             onEndCall = { viewModel.setInputMode(ChatInputMode.STANDARD) },
             modifier = Modifier.padding(bottom = 20.dp, top = 6.dp),
           )
@@ -1058,49 +1055,161 @@ private fun MicOrb(
 }
 
 /**
- * Hands-free "phone call" controls: a large state-reactive mic-orb centred at the bottom, plus a red
- * hang-up button. Tap the orb to interrupt the assistant (barge-in); long-press the orb or tap
- * hang-up to return to standard input.
+ * Hands-free "phone call" control: a single large button that ends the call (returns to standard
+ * input) when tapped, wrapped in a state-reactive glow (listening / thinking / speaking). The
+ * continuous call loop drives listening automatically, so no separate mic control is needed.
  */
 @Composable
 private fun CallControls(
-  enabled: Boolean,
   isListening: Boolean,
   isThinking: Boolean,
   isSpeaking: Boolean,
-  onTapOrb: () -> Unit,
-  onLongPressOrb: () -> Unit,
   onEndCall: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   Column(
     modifier = modifier.fillMaxWidth(),
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(18.dp),
+    verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
-    MicOrb(
-      enabled = enabled,
+    Text(
+      text = callStatusLabel(isListening, isThinking, isSpeaking),
+      color = Color.White.copy(alpha = 0.85f),
+      fontSize = 14.sp,
+      fontWeight = FontWeight.Medium,
+    )
+    CallButton(
       isListening = isListening,
       isThinking = isThinking,
       isSpeaking = isSpeaking,
-      onClick = onTapOrb,
-      onLongClick = onLongPressOrb,
-      coreSize = 104.dp,
+      onClick = onEndCall,
     )
-    // Hang-up (return to standard input).
+  }
+}
+
+private fun callStatusLabel(
+  isListening: Boolean,
+  isThinking: Boolean,
+  isSpeaking: Boolean,
+): String =
+  when {
+    isListening -> "듣고 있어요…"
+    isThinking -> "생각 중…"
+    isSpeaking -> "말하는 중…"
+    else -> "연결됨 · 말하면 들을게요"
+  }
+
+/**
+ * The merged call button: a red hang-up core surrounded by a reactive glow whose colour/pulse
+ * reflects the listening/thinking/speaking state. Tapping it ends the call (changes mode).
+ */
+@Composable
+private fun CallButton(
+  isListening: Boolean,
+  isThinking: Boolean,
+  isSpeaking: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val active = isListening || isThinking || isSpeaking
+  val glowColor =
+    when {
+      isListening -> ListeningColor
+      isThinking -> ThinkingColor
+      isSpeaking -> SpeakingColor
+      else -> AccentPurple
+    }
+  val haloSize = 132.dp
+  val coreSize = 88.dp
+
+  val transition = rememberInfiniteTransition(label = "callbtn")
+  val pulse by
+    transition.animateFloat(
+      initialValue = 0.92f,
+      targetValue = if (active) 1.16f else 1.04f,
+      animationSpec =
+        infiniteRepeatable(
+          animation = tween(durationMillis = if (isListening) 600 else 1400, easing = LinearEasing),
+          repeatMode = RepeatMode.Reverse,
+        ),
+      label = "pulse",
+    )
+  val angle by
+    transition.animateFloat(
+      initialValue = 0f,
+      targetValue = 360f,
+      animationSpec =
+        infiniteRepeatable(
+          animation = tween(durationMillis = 7000, easing = LinearEasing),
+          repeatMode = RepeatMode.Restart,
+        ),
+      label = "angle",
+    )
+  // Expanding ripple ring, emphasised while active (live mic / speaking).
+  val ripple by
+    transition.animateFloat(
+      initialValue = 0f,
+      targetValue = 1f,
+      animationSpec =
+        infiniteRepeatable(
+          animation = tween(durationMillis = 1800, easing = LinearEasing),
+          repeatMode = RepeatMode.Restart,
+        ),
+      label = "ripple",
+    )
+
+  Box(modifier = modifier.size(haloSize), contentAlignment = Alignment.Center) {
+    // Outer expanding ripple.
     Box(
       modifier =
-        Modifier.size(60.dp)
+        Modifier.size(haloSize)
+          .graphicsLayer {
+            val s = 0.6f + 0.5f * ripple
+            scaleX = s
+            scaleY = s
+            alpha = (if (active) 0.5f else 0.25f) * (1f - ripple)
+          }
           .clip(CircleShape)
-          .background(Color(0xFFE5484D))
-          .clickable { onEndCall() },
+          .background(glowColor.copy(alpha = 0.5f))
+    )
+    // Rotating glow halo.
+    Box(
+      modifier =
+        Modifier.size(haloSize)
+          .graphicsLayer {
+            scaleX = pulse
+            scaleY = pulse
+            rotationZ = angle
+            alpha = 0.6f
+          }
+          .blur(12.dp)
+          .clip(CircleShape)
+          .background(
+            Brush.sweepGradient(
+              listOf(
+                glowColor.copy(alpha = 0f),
+                glowColor.copy(alpha = 0.95f),
+                glowColor.copy(alpha = 0f),
+              )
+            )
+          )
+    )
+    // Red hang-up core (tap to end the call / switch back to standard input).
+    Box(
+      modifier =
+        Modifier.size(coreSize)
+          .clip(CircleShape)
+          .background(
+            Brush.radialGradient(listOf(Color(0xFFF0555A), Color(0xFFD1383D)))
+          )
+          .clickable { onClick() },
       contentAlignment = Alignment.Center,
     ) {
       Icon(
         Icons.Rounded.CallEnd,
         contentDescription = "통화 종료",
         tint = Color.White,
-        modifier = Modifier.size(28.dp),
+        modifier = Modifier.size(34.dp),
       )
     }
   }
