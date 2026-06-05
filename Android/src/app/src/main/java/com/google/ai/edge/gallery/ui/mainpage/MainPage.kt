@@ -71,6 +71,8 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -498,6 +500,8 @@ private fun VoiceChatContent(
               onRegenerate = { index -> viewModel.regenerate(index) },
               onNewChat = { viewModel.clearConversation() },
               onContinue = continueTalking,
+              isMuted = uiState.isMuted,
+              onToggleMute = { viewModel.toggleMute() },
             )
           // Downloaded but still loading — don't nag the user to open settings.
           modelDownloaded -> PreparingHint(characterName = selectedCharacter.name)
@@ -691,6 +695,8 @@ private fun Transcript(
   onRegenerate: (Int) -> Unit,
   onNewChat: () -> Unit,
   onContinue: () -> Unit,
+  isMuted: Boolean,
+  onToggleMute: () -> Unit,
 ) {
   val listState = rememberLazyListState()
   // Keep the latest message in view as it streams in.
@@ -722,6 +728,39 @@ private fun Transcript(
         onContinue = onContinue,
       )
     }
+    // "쉿!" mute toggle in the bottom-right margin below the last bubble: when on, replies still show
+    // as text but are never spoken.
+    if (messages.isNotEmpty()) {
+      item {
+        Row(
+          modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 6.dp),
+          horizontalArrangement = Arrangement.End,
+        ) {
+          MuteToggle(muted = isMuted, onToggle = onToggleMute)
+        }
+      }
+    }
+  }
+}
+
+/** A small "쉿!" toggle: when on, the assistant's replies are shown but not spoken (TTS muted). */
+@Composable
+private fun MuteToggle(muted: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+  Box(
+    modifier =
+      modifier
+        .size(34.dp)
+        .clip(CircleShape)
+        .background(if (muted) AccentPurple.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.14f))
+        .clickable { onToggle() },
+    contentAlignment = Alignment.Center,
+  ) {
+    Icon(
+      imageVector = if (muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+      contentDescription = if (muted) "소리 켜기" else "쉿! 소리 끄기",
+      tint = Color.White,
+      modifier = Modifier.size(19.dp),
+    )
   }
 }
 

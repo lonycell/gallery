@@ -231,6 +231,8 @@ data class VoiceAssistantUiState(
   val toolActivity: String = "",
   /** Whether input is the standard text+one-shot-mic, or hands-free phone-call mode. */
   val inputMode: ChatInputMode = ChatInputMode.STANDARD,
+  /** When true ("쉿!"), replies still appear as text but are never spoken aloud. */
+  val isMuted: Boolean = false,
 )
 
 @HiltViewModel
@@ -604,6 +606,15 @@ constructor(
     }
     _uiState.update { it.copy(inputMode = mode) }
     if (mode == ChatInputMode.CALL) startCallLoop() else stopCallLoop()
+  }
+
+  /** Toggles "쉿!" mute. Replies keep showing as text, but no TTS plays. Silences any current speech. */
+  fun toggleMute() {
+    val muted = !_uiState.value.isMuted
+    _uiState.update { it.copy(isMuted = muted) }
+    if (muted) {
+      stopSpeaking()
+    }
   }
 
   fun toggleInputMode() {
@@ -1627,6 +1638,10 @@ constructor(
   }
 
   private fun speak(text: String) {
+    // "쉿!" mute: replies still render as text, just never spoken.
+    if (_uiState.value.isMuted) {
+      return
+    }
     // Strip emoji/symbols so they aren't read aloud; skip if nothing speakable remains.
     val spoken = sanitizeForSpeech(text)
     if (spoken.isBlank()) {
@@ -1689,6 +1704,10 @@ constructor(
 
   /** Starts a fresh streaming-speech turn: clears prior speech and launches the sentence consumer. */
   private fun beginStreamingSpeech() {
+    // "쉿!" mute: don't open the speech pipeline; enqueue/finish become no-ops (channel stays null).
+    if (_uiState.value.isMuted) {
+      return
+    }
     cancelStreamingSpeech()
     spokenChars = 0
     streamingTurnActive = true
