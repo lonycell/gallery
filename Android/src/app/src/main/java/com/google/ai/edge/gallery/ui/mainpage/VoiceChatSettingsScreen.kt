@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle as CheckCircleOutlined
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Download
@@ -515,7 +516,14 @@ private fun LlmModelRow(
             tint = MaterialTheme.colorScheme.primary,
           )
         downloading -> {} // progress bar is shown below the row
-        downloaded -> {} // tap-to-select handled by the row
+        downloaded ->
+          // Downloaded but not the active model: a dimmed, unfilled check makes it clear the row is
+          // selectable (tap to select), vs the filled CheckCircle for the active one.
+          Icon(
+            Icons.Outlined.CheckCircleOutlined,
+            contentDescription = "탭하여 선택",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+          )
         else ->
           IconButton(onClick = onDownload) {
             Icon(Icons.Rounded.Download, contentDescription = "받기")
