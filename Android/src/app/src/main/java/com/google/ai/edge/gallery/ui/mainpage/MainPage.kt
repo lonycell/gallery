@@ -41,6 +41,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
@@ -99,10 +100,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -482,6 +485,14 @@ private fun VoiceChatContent(
   // the character changes.
   var backgroundPlaying by remember(selectedCharacter.id) { mutableStateOf(true) }
 
+  // Background focus (crop bias) per character — long-press-drag the background to reposition it, the
+  // chosen position is remembered. (-1..1: x left↔right, y top↔bottom; default top-center.)
+  var bgFocus by
+    remember(selectedCharacter.id) {
+      val f = characterViewModel.backgroundFocus(selectedCharacter.id)
+      mutableStateOf(Offset(f.first, f.second))
+    }
+
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
     // Hero: the selected character's background, full-bleed (cropped) like the subscription page. It
     // may be a still image, GIF, short video, or Lottie — all framed identically. A gradient over it
@@ -491,6 +502,7 @@ private fun VoiceChatContent(
       playing = backgroundPlaying,
       contentDescription = selectedCharacter.name,
       modifier = Modifier.fillMaxSize(),
+      alignment = BiasAlignment(horizontalBias = bgFocus.x, verticalBias = bgFocus.y),
     )
     Box(
       modifier =
@@ -505,6 +517,24 @@ private fun VoiceChatContent(
           )
           // Double-tap the background to nudge the character to keep talking (no user message).
           .pointerInput(Unit) { detectTapGestures(onDoubleTap = { continueTalking() }) }
+          // Long-press then drag to reposition (focus) the background; remembered per character.
+          .pointerInput(selectedCharacter.id) {
+            detectDragGesturesAfterLongPress(
+              onDrag = { change, dragAmount ->
+                change.consume()
+                val w = size.width.toFloat().coerceAtLeast(1f)
+                val h = size.height.toFloat().coerceAtLeast(1f)
+                bgFocus =
+                  Offset(
+                    (bgFocus.x - dragAmount.x / w * 2f).coerceIn(-1f, 1f),
+                    (bgFocus.y - dragAmount.y / h * 2f).coerceIn(-1f, 1f),
+                  )
+              },
+              onDragEnd = {
+                characterViewModel.setBackgroundFocus(selectedCharacter.id, bgFocus.x, bgFocus.y)
+              },
+            )
+          }
     )
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding()) {

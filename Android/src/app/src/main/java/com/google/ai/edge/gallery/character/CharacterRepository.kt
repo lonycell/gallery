@@ -145,6 +145,18 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
     persist(_state.value.copy(overrides = updated))
   }
 
+  /** Saves the chat-background focus (crop bias) for [characterId], merging into its override. */
+  fun setBackgroundFocus(characterId: String, x: Float, y: Float) {
+    val current = _state.value.overrides[characterId] ?: CharacterOverride()
+    setOverride(characterId, current.copy(bgFocusX = x, bgFocusY = y))
+  }
+
+  /** The chat-background focus bias for [characterId] (x, y), defaulting to top-center (0, -1). */
+  fun backgroundFocus(characterId: String): Pair<Float, Float> {
+    val o = _state.value.overrides[characterId]
+    return (o?.bgFocusX ?: 0f) to (o?.bgFocusY ?: -1f)
+  }
+
   /** The saved customization for [characterId], or null if it hasn't been customized. */
   fun overrideFor(characterId: String): CharacterOverride? = _state.value.overrides[characterId]
 
