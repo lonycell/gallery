@@ -32,7 +32,9 @@ import com.google.ai.edge.gallery.common.isAICoreSupported
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
 import com.google.ai.edge.gallery.data.Accelerator
+import com.google.ai.edge.gallery.data.AllowedModel
 import com.google.ai.edge.gallery.data.BuiltInTaskId
+import com.google.ai.edge.gallery.data.DefaultConfig
 import com.google.ai.edge.gallery.data.Category
 import com.google.ai.edge.gallery.data.CategoryInfo
 import com.google.ai.edge.gallery.data.Config
@@ -937,6 +939,11 @@ constructor(
           return@launch
         }
 
+        // Always offer the smallest tool-capable model (Gemma3-1B-IT, ~558MB int4) so the optional
+        // "tool model" (2-model design) and a lightweight chat option are downloadable even if the
+        // remote allowlist changes. Deduped by name, so no clash if it's already listed.
+        modelAllowlist = withSmallToolModel(modelAllowlist)
+
         Log.d(TAG, "Allowlist: $modelAllowlist")
 
         val isAICoreAvailable by lazy {
@@ -1489,4 +1496,38 @@ constructor(
 
 private fun getAllowlistUrl(version: String): String {
   return "$ALLOWLIST_BASE_URL/${version}.json"
+}
+
+/**
+ * Ensures the small, tool-capable Gemma3-1B-IT (int4, ~558MB) is in the allowlist so it's always
+ * downloadable — used as the lightweight "tool model" in the 2-model design, and as a small chat
+ * option. Values verified against the official gallery allowlist (litert-community/Gemma3-1B-IT).
+ * Deduped by name so it never clashes if the remote allowlist already lists it.
+ */
+private fun withSmallToolModel(allowlist: ModelAllowlist): ModelAllowlist {
+  if (allowlist.models.any { it.name == "Gemma3-1B-IT" }) return allowlist
+  val gemma1b =
+    AllowedModel(
+      name = "Gemma3-1B-IT",
+      modelId = "litert-community/Gemma3-1B-IT",
+      modelFile = "gemma3-1b-it-int4.litertlm",
+      commitHash = "42d538a932e8d5b12e6b3b455f5572560bd60b2c",
+      description = "가장 가벼운 Gemma (1B · int4) — 도구 호출용 보조 모델이나 가벼운 대화에 적합",
+      sizeInBytes = 584417280L,
+      defaultConfig =
+        DefaultConfig(
+          topK = 64,
+          topP = 0.95f,
+          temperature = 1.0f,
+          accelerators = "gpu,cpu",
+          visionAccelerator = null,
+          maxContextLength = null,
+          maxTokens = 1024,
+        ),
+      taskTypes = listOf(BuiltInTaskId.LLM_CHAT, BuiltInTaskId.LLM_PROMPT_LAB),
+      llmSupportImage = false,
+      llmSupportAudio = false,
+      runtimeType = RuntimeType.LITERT_LM,
+    )
+  return allowlist.copy(models = listOf(gemma1b) + allowlist.models)
 }
