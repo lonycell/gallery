@@ -803,10 +803,11 @@ private fun Transcript(
     ) { ri, message ->
       val index = lastIndex - ri
       when (message.kind) {
-        ChatMessageKind.TOOL_PROGRESS ->
-          message.toolProgress?.let { panel ->
-            VoiceToolProgressBubble(panel = panel, modifier = Modifier.fillMaxWidth())
-          }
+        ChatMessageKind.TOOL_PROGRESS -> {
+          // Intentionally renders nothing. The persistent tool-progress panel lingered as an empty
+          // box and duplicated the spinner; progress is now shown only via the transient
+          // toolActivity chip/status. Any legacy panel messages simply don't render.
+        }
         ChatMessageKind.IMAGE ->
           message.imageBase64?.let { base64 ->
             decodeBase64ToBitmap(base64String = base64)?.let { bitmap ->

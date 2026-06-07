@@ -1485,15 +1485,12 @@ constructor(
    * Also mirrors the current step as [VoiceAssistantUiState.toolActivity] for the status line.
    */
   fun onSkillProgressAction(action: SkillProgressAgentAction) {
+    // The voice companion shows tool progress only as the transient toolActivity chip/status (clears
+    // when done) — not as a persistent transcript panel, which lingered as an empty box and doubled
+    // the progress spinner. So we update only toolActivity here.
     _uiState.update { state ->
       state.copy(toolActivity = if (action.inProgress) action.label else "")
     }
-    updateToolProgressPanel(
-      title = action.label,
-      inProgress = action.inProgress,
-      addItemTitle = action.addItemTitle,
-      addItemDescription = action.addItemDescription,
-    )
   }
 
   fun addLogToToolProgressPanel(logMessage: LogMessage) {
@@ -1571,9 +1568,9 @@ constructor(
     }
   }
 
-  /** Called when the model emits its first visible token — finalize any in-progress tool step. */
+  /** Called when the model emits its first visible token — the tool phase is over, clear the chip. */
   fun onAgentToolsFirstToken() {
-    finalizeLastToolProgressPanel()
+    _uiState.update { it.copy(toolActivity = "") }
   }
 
   /** Called when generation completes — show tool-produced images/webviews and finalize progress. */
@@ -1598,9 +1595,8 @@ constructor(
         )
         tools.resultWebviewToShow = null
       }
-      state.copy(messages = messages)
+      state.copy(messages = messages, toolActivity = "")
     }
-    finalizeLastToolProgressPanel()
   }
 
   private fun finalizeLastToolProgressPanel() {
