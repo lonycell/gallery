@@ -1834,11 +1834,27 @@ constructor(
                 onAgentToolsFirstToken()
               }
               builder.append(partialResult)
-              updateStreamingAssistant(builder.toString(), streaming = !done)
-              if (streamingSpeech) {
-                // Speak from a code-free view so code blocks are never read aloud (the on-screen
-                // text above keeps the code).
-                enqueueReadySentences(speakableStreamingView(builder.toString()))
+              val repeatLen = if (done) 0 else runawayRepeatLength(builder.toString())
+              if (repeatLen > 0) {
+                // The model fell into a repetition loop (e.g. "파파파…", common with small models);
+                // cut the repeated tail, finalize the reply, and ignore the rest of this generation.
+                Log.w(TAG, "Aborting runaway repetition ($repeatLen chars)")
+                val trimmed =
+                  (builder.toString().dropLast(repeatLen).trimEnd().ifEmpty { builder.toString() }) +
+                    " …"
+                generationSeq++ // invalidate further tokens from this run
+                finishGeneration()
+                if (streamingSpeech) cancelStreamingSpeech()
+                updateStreamingAssistant(trimmed, streaming = false)
+                _uiState.update { it.copy(isThinking = false) }
+                persistActive()
+              } else {
+                updateStreamingAssistant(builder.toString(), streaming = !done)
+                if (streamingSpeech) {
+                  // Speak from a code-free view so code blocks are never read aloud (the on-screen
+                  // text above keeps the code).
+                  enqueueReadySentences(speakableStreamingView(builder.toString()))
+                }
               }
             }
             if (done) {
@@ -1902,6 +1918,27 @@ constructor(
       state.copy(messages = messages)
     }
     syncActiveMessages()
+  }
+
+  /**
+   * Detects a runaway repetition at the end of [text] (small models sometimes loop on one short
+   * token, e.g. "파파파…"). Returns the length of the pathological trailing run, or 0 if none.
+   * Conservative: a repeating unit of 1..4 chars must fill at least 40 trailing characters, so normal
+   * emphatic repeats (e.g. "ㅋㅋㅋ", "...") don't trip it.
+   */
+  private fun runawayRepeatLength(text: String): Int {
+    val n = text.length
+    if (n < 40) return 0
+    for (unit in 1..4) {
+      if (n < unit * 2) continue
+      val pat = text.substring(n - unit, n)
+      if (pat.isBlank()) continue
+      var i = n
+      while (i - unit >= 0 && text.regionMatches(i - unit, pat, 0, unit)) i -= unit
+      val runLen = n - i
+      if (runLen >= 40) return runLen
+    }
+    return 0
   }
 
   // region Text to speech (TTS)
