@@ -41,8 +41,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -485,23 +485,32 @@ private fun VoiceChatContent(
   // the character changes.
   var backgroundPlaying by remember(selectedCharacter.id) { mutableStateOf(true) }
 
-  // Background focus (crop bias) per character — long-press-drag the background to reposition it, the
-  // chosen position is remembered. (-1..1: x left↔right, y top↔bottom; default top-center.)
-  var bgFocus by
-    remember(selectedCharacter.id) {
-      val f = characterViewModel.backgroundFocus(selectedCharacter.id)
-      mutableStateOf(Offset(f.first, f.second))
-    }
+  // Per-character background transform — drag to reposition (pan), pinch to zoom. Remembered per
+  // character. bias x/y in [-1,1] (default top-center); zoom >= 1.
+  val initialFocus = remember(selectedCharacter.id) { characterViewModel.backgroundFocus(selectedCharacter.id) }
+  var bgFocus by remember(selectedCharacter.id) { mutableStateOf(Offset(initialFocus.first, initialFocus.second)) }
+  var bgZoom by remember(selectedCharacter.id) { mutableStateOf(initialFocus.third) }
+  var bgAdjusted by remember(selectedCharacter.id) { mutableStateOf(false) }
+  // Persist a short moment after the user stops adjusting (debounced; only after an actual change).
+  LaunchedEffect(selectedCharacter.id, bgFocus, bgZoom) {
+    if (!bgAdjusted) return@LaunchedEffect
+    delay(500)
+    characterViewModel.setBackgroundFocus(selectedCharacter.id, bgFocus.x, bgFocus.y, bgZoom)
+  }
 
   Box(modifier = modifier.fillMaxSize().background(ScrimBase)) {
-    // Hero: the selected character's background, full-bleed (cropped) like the subscription page. It
-    // may be a still image, GIF, short video, or Lottie — all framed identically. A gradient over it
-    // is light at the face and fades into the dark chat area below.
+    // Hero: the selected character's background, full-bleed (cropped). May be a still image, GIF,
+    // short video, or Lottie — all framed identically, repositioned (alignment) + zoomed (scale).
     CharacterBackgroundView(
       background = selectedCharacter.background,
       playing = backgroundPlaying,
       contentDescription = selectedCharacter.name,
-      modifier = Modifier.fillMaxSize(),
+      modifier =
+        Modifier.fillMaxSize().graphicsLayer {
+          scaleX = bgZoom
+          scaleY = bgZoom
+          clip = true
+        },
       alignment = BiasAlignment(horizontalBias = bgFocus.x, verticalBias = bgFocus.y),
     )
     Box(
@@ -517,23 +526,19 @@ private fun VoiceChatContent(
           )
           // Double-tap the background to nudge the character to keep talking (no user message).
           .pointerInput(Unit) { detectTapGestures(onDoubleTap = { continueTalking() }) }
-          // Long-press then drag to reposition (focus) the background; remembered per character.
+          // Drag to reposition (pan), pinch to zoom the background; remembered per character.
           .pointerInput(selectedCharacter.id) {
-            detectDragGesturesAfterLongPress(
-              onDrag = { change, dragAmount ->
-                change.consume()
-                val w = size.width.toFloat().coerceAtLeast(1f)
-                val h = size.height.toFloat().coerceAtLeast(1f)
-                bgFocus =
-                  Offset(
-                    (bgFocus.x - dragAmount.x / w * 2f).coerceIn(-1f, 1f),
-                    (bgFocus.y - dragAmount.y / h * 2f).coerceIn(-1f, 1f),
-                  )
-              },
-              onDragEnd = {
-                characterViewModel.setBackgroundFocus(selectedCharacter.id, bgFocus.x, bgFocus.y)
-              },
-            )
+            detectTransformGestures { _, pan, zoom, _ ->
+              bgAdjusted = true
+              val w = size.width.toFloat().coerceAtLeast(1f)
+              val h = size.height.toFloat().coerceAtLeast(1f)
+              bgZoom = (bgZoom * zoom).coerceIn(1f, 4f)
+              bgFocus =
+                Offset(
+                  (bgFocus.x - pan.x / w * 2f / bgZoom).coerceIn(-1f, 1f),
+                  (bgFocus.y - pan.y / h * 2f / bgZoom).coerceIn(-1f, 1f),
+                )
+            }
           }
     )
 

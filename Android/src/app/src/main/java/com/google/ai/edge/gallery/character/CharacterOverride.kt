@@ -38,10 +38,12 @@ data class CharacterOverride(
   val backgroundUri: String? = null,
   /**
    * Chat-background focus (crop alignment) bias in [-1, 1]: x = -1 left … +1 right, y = -1 top …
-   * +1 bottom. Set by long-press-dragging the background. Null = default (top-center).
+   * +1 bottom. Set by dragging the background. Null = default (top-center).
    */
   val bgFocusX: Float? = null,
   val bgFocusY: Float? = null,
+  /** Chat-background zoom (pinch). 1.0 = fit-fill, >1 zoomed in. Null = default (1.0). */
+  val bgZoom: Float? = null,
 ) {
   /** True when nothing has been customized (used to drop empty overrides). */
   val isEmpty: Boolean
@@ -56,7 +58,8 @@ data class CharacterOverride(
         imageUri == null &&
         backgroundUri == null &&
         bgFocusX == null &&
-        bgFocusY == null
+        bgFocusY == null &&
+        bgZoom == null
 }
 
 /** Builds a [CharacterBackground] from a persisted kind + media source. */

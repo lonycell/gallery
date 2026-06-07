@@ -86,10 +86,10 @@ class CharacterViewModel @Inject constructor(private val repository: CharacterRe
   /** Restores [id] to its built-in defaults. */
   fun clearOverride(id: String) = repository.clearOverride(id)
 
-  /** Saves the chat-background focus (crop bias) for [id]. */
-  fun setBackgroundFocus(id: String, x: Float, y: Float) =
-    repository.setBackgroundFocus(id, x, y)
+  /** Saves the chat-background transform (crop bias + zoom) for [id]. */
+  fun setBackgroundFocus(id: String, x: Float, y: Float, zoom: Float) =
+    repository.setBackgroundFocus(id, x, y, zoom)
 
-  /** The chat-background focus bias (x, y) for [id]; defaults to top-center (0, -1). */
-  fun backgroundFocus(id: String): Pair<Float, Float> = repository.backgroundFocus(id)
+  /** The chat-background transform (biasX, biasY, zoom) for [id]; defaults to (0, -1, 1). */
+  fun backgroundFocus(id: String): Triple<Float, Float, Float> = repository.backgroundFocus(id)
 }
