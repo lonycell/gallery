@@ -1678,7 +1678,11 @@ constructor(
         return null
       }
     if (calls.isEmpty()) return null
-    val results = calls.joinToString("\n\n") { call -> "[${call.name}] ${executor.execute(call)}" }
+    val parts = mutableListOf<String>()
+    for (call in calls) {
+      parts.add("[${call.name}] ${executor.execute(call)}")
+    }
+    val results = parts.joinToString("\n\n")
     return "사용자가 이렇게 말했어: \"$text\"\n\n도구 실행 결과:\n$results\n\n" +
       "이 결과를 바탕으로 너의 캐릭터 말투로 자연스럽게 한국어로 답해줘. JSON이나 원문을 그대로 읽지 말고 " +
       "핵심만 자연스럽게 전해."
