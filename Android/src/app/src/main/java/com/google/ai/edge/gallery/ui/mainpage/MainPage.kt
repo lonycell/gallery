@@ -124,6 +124,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.character.CharacterViewModel
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentToolsActionHost
@@ -202,9 +203,11 @@ fun MainPage(
 ) {
   // The selected companion drives the background image, avatar and (via the prompt source) persona.
   val charState by characterViewModel.state.collectAsState()
+  // Use the *customized* character (base merged with the user's edits) and recompute when either the
+  // selection or the saved overrides change, so customization shows up in the chat immediately.
   val selectedCharacter =
-    remember(charState.selectedId) {
-      characterViewModel.characterById(charState.selectedId)
+    remember(charState.selectedId, charState.overrides) {
+      characterViewModel.customizedCharacterById(charState.selectedId)
         ?: characterViewModel.characters.first()
     }
 
@@ -297,12 +300,18 @@ private fun VoiceChatContent(
   // Select + initialize the chosen model while the chat is visible. Re-initialized (force) only when
   // the model or the selected character (persona) actually changed — so it doesn't needlessly
   // reload (slow) on every return from settings when nothing relevant changed.
-  LaunchedEffect(targetModel?.name, charState.selectedId) {
+  // Also keyed on the persona (systemPrompt) so editing the selected character's name/personality/
+  // tone/topics re-initializes the model with the new system instruction (VoiceAssistantTask reads
+  // selectedCharacter().systemPrompt at init), making customizations take effect right away.
+  LaunchedEffect(targetModel?.name, charState.selectedId, selectedCharacter.systemPrompt) {
     val m = targetModel ?: return@LaunchedEffect
     if (selectedModel.name != m.name) {
       modelManagerViewModel.selectModel(m)
     }
-    val signatureChanged = characterViewModel.needsModelInit("${m.name}|${charState.selectedId}")
+    val signatureChanged =
+      characterViewModel.needsModelInit(
+        "${m.name}|${charState.selectedId}|${selectedCharacter.systemPrompt.hashCode()}"
+      )
     if (signatureChanged || !modelManagerUiState.isModelInitialized(m)) {
       modelManagerViewModel.initializeModel(
         context = context,
@@ -518,6 +527,7 @@ private fun VoiceChatContent(
             Transcript(
               messages = uiState.messages,
               avatarRes = selectedCharacter.imageRes,
+              avatarUri = selectedCharacter.imageUri,
               onDeleteBefore = { index -> viewModel.deleteMessagesBefore(index) },
               onRegenerate = { index -> viewModel.regenerate(index) },
               onNewChat = { viewModel.clearConversation() },
@@ -713,6 +723,7 @@ private fun GreetingHint(characterName: String) {
 private fun Transcript(
   messages: List<ChatMessage>,
   avatarRes: Int,
+  avatarUri: String?,
   onDeleteBefore: (Int) -> Unit,
   onRegenerate: (Int) -> Unit,
   onNewChat: () -> Unit,
@@ -792,6 +803,7 @@ private fun Transcript(
           VoiceChatBubble(
             message = message,
             avatarRes = avatarRes,
+            avatarUri = avatarUri,
             canDeleteBefore = index > 0,
             onDeleteBefore = { onDeleteBefore(index) },
             onRegenerate = { onRegenerate(index) },
@@ -934,6 +946,7 @@ private fun VoiceProgressPanelItem(item: ProgressPanelItem, density: androidx.co
 private fun VoiceChatBubble(
   message: ChatMessage,
   avatarRes: Int,
+  avatarUri: String? = null,
   canDeleteBefore: Boolean,
   onDeleteBefore: () -> Unit,
   onRegenerate: () -> Unit,
@@ -959,12 +972,22 @@ private fun VoiceChatBubble(
     verticalAlignment = Alignment.Bottom,
   ) {
     if (!isUser) {
-      Image(
-        painter = painterResource(avatarRes),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = Modifier.size(30.dp).clip(CircleShape),
-      )
+      val avatarModifier = Modifier.size(30.dp).clip(CircleShape)
+      if (avatarUri != null) {
+        AsyncImage(
+          model = avatarUri,
+          contentDescription = null,
+          contentScale = ContentScale.Crop,
+          modifier = avatarModifier,
+        )
+      } else {
+        Image(
+          painter = painterResource(avatarRes),
+          contentDescription = null,
+          contentScale = ContentScale.Crop,
+          modifier = avatarModifier,
+        )
+      }
       Spacer(modifier = Modifier.width(8.dp))
     }
 

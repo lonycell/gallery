@@ -48,6 +48,8 @@ data class CharacterState(
   val voiceByCharacter: Map<String, String> = emptyMap(),
   /** Global default TTS voice id, used for any character without its own assigned voice. */
   val defaultVoiceId: String = "",
+  /** Per-character user customizations (name/personality/photo/background/…), merged onto the base. */
+  val overrides: Map<String, CharacterOverride> = emptyMap(),
 )
 
 /**
@@ -62,15 +64,21 @@ data class CharacterState(
 @Singleton
 class CharacterRepository @Inject constructor(@ApplicationContext context: Context) {
 
-  val characters: List<Character> = Characters.all
+  /** Base characters merged with the user's current customizations. */
+  val characters: List<Character>
+    get() {
+      val overrides = _state.value.overrides
+      return Characters.all.map { it.applyOverride(overrides[it.id]) }
+    }
 
   private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+  private val gson = com.google.gson.Gson()
 
   private val _state = MutableStateFlow(load())
   val state: StateFlow<CharacterState> = _state.asStateFlow()
 
   private fun load(): CharacterState {
-    val defaultSelected = characters.firstOrNull()?.id ?: ""
+    val defaultSelected = Characters.all.firstOrNull()?.id ?: ""
     return CharacterState(
       coins = prefs.getInt(KEY_COINS, WELCOME_COINS),
       unlockedIds = prefs.getStringSet(KEY_UNLOCKED, emptySet())?.toSet() ?: emptySet(),
@@ -78,6 +86,7 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       isPro = prefs.getBoolean(KEY_PRO, false),
       voiceByCharacter = decodeVoices(prefs.getStringSet(KEY_VOICES, emptySet())),
       defaultVoiceId = prefs.getString(KEY_DEFAULT_VOICE, "") ?: "",
+      overrides = decodeOverrides(prefs.getString(KEY_OVERRIDES, null)),
     )
   }
 
@@ -90,9 +99,53 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       .putBoolean(KEY_PRO, newState.isPro)
       .putStringSet(KEY_VOICES, encodeVoices(newState.voiceByCharacter))
       .putString(KEY_DEFAULT_VOICE, newState.defaultVoiceId)
+      .putString(KEY_OVERRIDES, gson.toJson(newState.overrides))
       .apply()
     _state.value = newState
   }
+
+  // Customizations are stored as JSON (Map<characterId, CharacterOverride>).
+  private fun decodeOverrides(json: String?): Map<String, CharacterOverride> {
+    if (json.isNullOrBlank()) return emptyMap()
+    return try {
+      val type =
+        com.google.gson.reflect.TypeToken.getParameterized(
+            Map::class.java,
+            String::class.java,
+            CharacterOverride::class.java,
+          )
+          .type
+      gson.fromJson<Map<String, CharacterOverride>>(json, type) ?: emptyMap()
+    } catch (e: Exception) {
+      emptyMap()
+    }
+  }
+
+  /** Saves [override] for [characterId] (or removes it when empty). */
+  fun setOverride(characterId: String, override: CharacterOverride) {
+    val updated =
+      _state.value.overrides.toMutableMap().apply {
+        if (override.isEmpty) remove(characterId) else put(characterId, override)
+      }
+    persist(_state.value.copy(overrides = updated))
+  }
+
+  /** The saved customization for [characterId], or null if it hasn't been customized. */
+  fun overrideFor(characterId: String): CharacterOverride? = _state.value.overrides[characterId]
+
+  /** Removes any customization for [characterId], restoring the built-in defaults. */
+  fun clearOverride(characterId: String) {
+    if (!_state.value.overrides.containsKey(characterId)) return
+    val updated = _state.value.overrides.toMutableMap().apply { remove(characterId) }
+    persist(_state.value.copy(overrides = updated))
+  }
+
+  /** The base (built-in, un-customized) character for [id]. */
+  fun baseCharacter(id: String): Character? = Characters.byId(id)
+
+  /** The customized character for [id] (base merged with the user's override). */
+  fun character(id: String): Character? =
+    Characters.byId(id)?.applyOverride(_state.value.overrides[id])
 
   // Voices are stored as a string set of "characterId=voiceId" entries (voice ids never contain '=').
   private fun decodeVoices(raw: Set<String>?): Map<String, String> =
@@ -155,9 +208,12 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
 
   fun isUnlocked(id: String): Boolean = Characters.byId(id)?.let { isUnlocked(it) } ?: false
 
-  /** The currently selected character (falls back to the first one). */
-  fun selectedCharacter(): Character =
-    Characters.byId(_state.value.selectedId) ?: characters.first()
+  /** The currently selected character, with the user's customization applied (falls back to first). */
+  fun selectedCharacter(): Character {
+    val s = _state.value
+    val base = Characters.byId(s.selectedId) ?: Characters.all.first()
+    return base.applyOverride(s.overrides[base.id])
+  }
 
   /** Selects [id] as the active character if it is unlocked. */
   fun select(id: String) {
@@ -201,5 +257,6 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
     const val KEY_PRO = "is_pro"
     const val KEY_VOICES = "voice_by_character"
     const val KEY_DEFAULT_VOICE = "default_voice_id"
+    const val KEY_OVERRIDES = "character_overrides"
   }
 }

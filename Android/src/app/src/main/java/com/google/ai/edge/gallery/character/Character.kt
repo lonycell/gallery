@@ -51,6 +51,11 @@ data class Character(
   /** Whether this character is available to everyone without unlocking. */
   val freeByDefault: Boolean,
   /**
+   * Optional user-picked still photo (a content/file URI string) from customization. When set it
+   * overrides [imageRes] for the avatar and poster. Null means use the bundled [imageRes].
+   */
+  val imageUri: String? = null,
+  /**
    * The chat-screen background. Defaults to the still [imageRes], but can be a GIF, short video, or
    * Lottie animation per character. Rendered full-bleed (cropped) by `CharacterBackgroundView`. The
    * still [imageRes] is still used for the avatar, the character cards, and as a poster/fallback.

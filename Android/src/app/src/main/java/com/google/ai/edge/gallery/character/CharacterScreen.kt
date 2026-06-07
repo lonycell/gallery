@@ -45,6 +45,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MonetizationOn
 import androidx.compose.material.icons.rounded.WorkspacePremium
@@ -96,6 +97,7 @@ fun CharacterScreen(
   val state by viewModel.state.collectAsState()
   val vaState by voiceAssistantViewModel.uiState.collectAsState()
   var detail by remember { mutableStateOf<Character?>(null) }
+  var customizing by remember { mutableStateOf<Character?>(null) }
 
   Scaffold(
     topBar = {
@@ -155,6 +157,29 @@ fun CharacterScreen(
         detail = null
         onOpenSubscription()
       },
+      onCustomize = { customizing = character },
+    )
+  }
+
+  customizing?.let { character ->
+    CharacterCustomizeScreen(
+      character = character,
+      override = viewModel.overrideFor(character.id),
+      voices = vaState.voices,
+      selectedVoiceId = state.voiceByCharacter[character.id] ?: "",
+      onSelectVoice = { voiceId -> viewModel.setVoiceForCharacter(character.id, voiceId) },
+      onSave = { override ->
+        viewModel.setOverride(character.id, override)
+        // Refresh the detail behind so it shows the customized character.
+        detail = viewModel.customizedCharacterById(character.id)
+        customizing = null
+      },
+      onResetDefaults = {
+        viewModel.clearOverride(character.id)
+        detail = viewModel.customizedCharacterById(character.id)
+        customizing = null
+      },
+      onClose = { customizing = null },
     )
   }
 }
@@ -289,6 +314,7 @@ private fun CharacterDetail(
   onChat: () -> Unit,
   onUnlockWithCoins: () -> Boolean,
   onSubscribe: () -> Unit,
+  onCustomize: () -> Unit,
 ) {
   var message by remember { mutableStateOf("") }
 
@@ -315,16 +341,39 @@ private fun CharacterDetail(
     )
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(20.dp)) {
-      // Close.
-      Box(
-        modifier =
-          Modifier.size(40.dp)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.3f))
-            .clickable { onDismiss() },
-        contentAlignment = Alignment.Center,
-      ) {
-        Icon(Icons.Rounded.Close, contentDescription = "닫기", tint = Color.White, modifier = Modifier.size(20.dp))
+      // Top row: close (left) + customize/edit (right).
+      Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+          modifier =
+            Modifier.size(40.dp)
+              .clip(CircleShape)
+              .background(Color.Black.copy(alpha = 0.3f))
+              .clickable { onDismiss() },
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(
+            Icons.Rounded.Close,
+            contentDescription = "닫기",
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
+          )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Box(
+          modifier =
+            Modifier.size(40.dp)
+              .clip(CircleShape)
+              .background(Color.Black.copy(alpha = 0.3f))
+              .clickable { onCustomize() },
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(
+            Icons.Rounded.Edit,
+            contentDescription = "캐릭터 편집",
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
+          )
+        }
       }
 
       Spacer(modifier = Modifier.weight(1f))

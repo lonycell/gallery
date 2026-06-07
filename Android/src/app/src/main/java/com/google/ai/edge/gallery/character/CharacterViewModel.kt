@@ -32,7 +32,11 @@ import kotlinx.coroutines.flow.StateFlow
 class CharacterViewModel @Inject constructor(private val repository: CharacterRepository) :
   ViewModel() {
 
-  val characters: List<Character> = repository.characters
+  // Computed (not cached) so it reflects the latest customizations. The selection screen reads
+  // `state`, so a recomposition on any override change re-reads this merged list.
+  val characters: List<Character>
+    get() = repository.characters
+
   val state: StateFlow<CharacterState> = repository.state
 
   fun isUnlocked(character: Character): Boolean = repository.isUnlocked(character)
@@ -61,4 +65,21 @@ class CharacterViewModel @Inject constructor(private val repository: CharacterRe
   fun characterById(id: String): Character? = Characters.byId(id)
 
   fun selectedCharacter(): Character = repository.selectedCharacter()
+
+  // --- Customization ---
+
+  /** The base (un-customized) character for [id]. */
+  fun baseCharacterById(id: String): Character? = repository.baseCharacter(id)
+
+  /** The customized character for [id] (base merged with the saved override). */
+  fun customizedCharacterById(id: String): Character? = repository.character(id)
+
+  /** The saved customization for [id], or null. */
+  fun overrideFor(id: String): CharacterOverride? = repository.overrideFor(id)
+
+  /** Saves [override] for [id] (empty override is removed). */
+  fun setOverride(id: String, override: CharacterOverride) = repository.setOverride(id, override)
+
+  /** Restores [id] to its built-in defaults. */
+  fun clearOverride(id: String) = repository.clearOverride(id)
 }
