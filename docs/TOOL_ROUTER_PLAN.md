@@ -96,7 +96,7 @@ FunctionGemma가 담당하기 때문이다.
 | `ToolRouter` 인터페이스 | 신규 `customtasks/voiceassistant/router/` | `suspend fun route(userText, tools): List<ToolCall>` |
 | `FunctionGemmaRouter` 구현 | 신규 | FunctionGemma Engine/Conversation로 라우팅, 출력 파싱 |
 | `NoopRouter`(폴백) | 신규 | FunctionGemma 미설치 시 항상 "도구 없음" → 현행 동작 유지 |
-| 대화 모델 init | `VoiceAssistantTask.initializeModelFn` | tools=[], `enableConversationConstrainedDecoding=false`로 단순화 |
+| 대화 모델 init | `VoiceAssistantTask.initializeModelFn` | **경로 A**(툴콜 지원): tools ON 유지(변경 없음). **경로 B**(미지원): 이미 tools=[]·constrained=false(현 게이트). 즉 대화 모델 쪽은 경로별로 다르며, B에서만 "도구는 보조 모델이 담당" |
 | 도구 실행 | 기존 `WebSearchTools`/`KakaoShareTools`/`AgentTools` | 라우터 결과로 **직접 호출**(litert ToolSet 대신 수동 디스패치) |
 | 추론 흐름 | `VoiceAssistantViewModel.submitUserInput`/`runLlm` | 라우팅 → (도구 실행) → 대화 모델 호출 순서로 재구성 |
 | FunctionGemma 로딩 | 신규 (별도 litert-lm Engine) | 대화 모델과 **별도 인스턴스**로 상주 |
@@ -112,7 +112,8 @@ FunctionGemma가, 실행은 우리 코드가, 응답은 대화 모델이 한다.
   도구 목록을 구성. 도구 = 웹검색, 카카오 공유, 선택된 스킬/MCP 툴.
 - **출력 파싱**: FunctionGemma의 함수호출 출력(구조화 텍스트/JSON)을 파싱해 `ToolCall(name, args)`로
   변환. 견고한 파서 필요(빈/형식 오류 시 "도구 없음"으로 안전 폴백).
-- **대화 모델**: `tools=emptyList()`, 제약 디코딩 off → 어떤 모델이든 안전.
+- **대화 모델(경로 B에서만)**: `tools=emptyList()`, 제약 디코딩 off → 어떤 모델이든 안전. 경로 A
+  (툴콜 지원 모델)에서는 대화 모델이 기존처럼 tools ON으로 직접 처리하고 라우터를 쓰지 않는다.
 
 ## 6. 모델 준비 (선행 과제)
 
