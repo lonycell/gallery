@@ -63,15 +63,17 @@ fun CharacterBackgroundView(
   playing: Boolean,
   contentDescription: String?,
   modifier: Modifier = Modifier,
+  alignment: Alignment = Alignment.TopCenter,
 ) {
   // Identical frame for every variant — this is what makes the interface feel unified.
   val frame = modifier.fillMaxSize()
   when (background) {
     is CharacterBackground.StaticImage ->
-      StaticImageBackground(background.source, contentDescription, frame)
-    is CharacterBackground.Gif -> GifBackground(background.source, playing, contentDescription, frame)
+      StaticImageBackground(background.source, contentDescription, alignment, frame)
+    is CharacterBackground.Gif ->
+      GifBackground(background.source, playing, contentDescription, alignment, frame)
     is CharacterBackground.Video -> VideoBackground(background.source, playing, frame)
-    is CharacterBackground.Lottie -> LottieBackground(background.source, playing, frame)
+    is CharacterBackground.Lottie -> LottieBackground(background.source, playing, alignment, frame)
   }
 }
 
@@ -79,6 +81,7 @@ fun CharacterBackgroundView(
 private fun StaticImageBackground(
   source: MediaSource,
   contentDescription: String?,
+  alignment: Alignment,
   modifier: Modifier,
 ) {
   // A bundled drawable renders instantly with painterResource (no async decode flash); a URI/URL
@@ -88,7 +91,7 @@ private fun StaticImageBackground(
       painter = painterResource(source.resId),
       contentDescription = contentDescription,
       contentScale = ContentScale.Crop,
-      alignment = Alignment.TopCenter,
+      alignment = alignment,
       modifier = modifier,
     )
   } else {
@@ -96,7 +99,7 @@ private fun StaticImageBackground(
       model = source.coilModel(),
       contentDescription = contentDescription,
       contentScale = ContentScale.Crop,
-      alignment = Alignment.TopCenter,
+      alignment = alignment,
       modifier = modifier,
     )
   }
@@ -107,6 +110,7 @@ private fun GifBackground(
   source: MediaSource,
   playing: Boolean,
   contentDescription: String?,
+  alignment: Alignment,
   modifier: Modifier,
 ) {
   val context = LocalContext.current
@@ -128,7 +132,7 @@ private fun GifBackground(
     painter = painter,
     contentDescription = contentDescription,
     contentScale = ContentScale.Crop,
-    alignment = Alignment.TopCenter,
+    alignment = alignment,
     modifier = modifier,
   )
 }
@@ -165,7 +169,12 @@ private fun VideoBackground(source: MediaSource, playing: Boolean, modifier: Mod
 }
 
 @Composable
-private fun LottieBackground(source: MediaSource, playing: Boolean, modifier: Modifier) {
+private fun LottieBackground(
+  source: MediaSource,
+  playing: Boolean,
+  alignment: Alignment,
+  modifier: Modifier,
+) {
   val composition by rememberLottieComposition(source.lottieSpec())
   val progress by
     animateLottieCompositionAsState(
@@ -178,7 +187,7 @@ private fun LottieBackground(source: MediaSource, playing: Boolean, modifier: Mo
     composition = composition,
     progress = { progress },
     contentScale = ContentScale.Crop,
-    alignment = Alignment.TopCenter,
+    alignment = alignment,
     modifier = modifier,
   )
 }

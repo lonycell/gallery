@@ -16,7 +16,6 @@
 
 package com.google.ai.edge.gallery.character
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -67,8 +66,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -210,11 +207,15 @@ private fun CharacterCard(
         )
         .clickable { onClick() }
   ) {
-    Image(
-      painter = painterResource(character.imageRes),
+    // Live thumbnail: animated backgrounds (GIF/video/Lottie) play here too. The grid is a
+    // LazyVerticalGrid, so off-screen cards are disposed and their players released automatically —
+    // only visible cards animate. Center alignment keeps the original card framing for stills.
+    CharacterBackgroundView(
+      background = character.background,
+      playing = true,
       contentDescription = character.name,
-      contentScale = ContentScale.Crop,
       modifier = Modifier.fillMaxSize(),
+      alignment = Alignment.Center,
     )
     // Bottom scrim for the name.
     Box(
