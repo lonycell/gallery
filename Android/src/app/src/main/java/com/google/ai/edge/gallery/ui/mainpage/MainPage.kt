@@ -134,7 +134,11 @@ import com.google.ai.edge.gallery.customtasks.agentchat.decodeBase64ToBitmap
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatInputMode
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessage
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessageKind
+import com.google.ai.edge.gallery.customtasks.voiceassistant.ToolExecutor
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ToolProgressData
+import com.google.ai.edge.gallery.customtasks.voiceassistant.modelSupportsFunctionCalling
+import com.google.ai.edge.gallery.customtasks.websearch.WebSearchTools
+import com.google.ai.edge.gallery.customtasks.kakao.KakaoShareTools
 import com.google.ai.edge.gallery.customtasks.voiceassistant.EmotionCue
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
@@ -319,6 +323,38 @@ private fun VoiceChatContent(
         model = m,
         force = true,
       )
+    }
+  }
+
+  // 2-model tool routing: only when the chat model can't do function calling itself, give the VM a
+  // downloaded tool-capable model (+ executor) so a secondary model can provide tools. Cleared
+  // otherwise (path A — the chat model handles tools by itself).
+  LaunchedEffect(
+    selectedModel.name,
+    charState.toolModelName,
+    modelManagerUiState.modelDownloadStatus.values.count {
+      it.status == ModelDownloadStatusType.SUCCEEDED
+    },
+  ) {
+    if (modelSupportsFunctionCalling(selectedModel.name)) {
+      viewModel.setToolSupport(null, null)
+    } else {
+      val candidates =
+        voiceTask?.models.orEmpty().filter { m ->
+          m.name != selectedModel.name &&
+            modelSupportsFunctionCalling(m.name) &&
+            modelManagerUiState.modelDownloadStatus[m.name]?.status ==
+              ModelDownloadStatusType.SUCCEEDED
+        }
+      val chosen =
+        (if (charState.toolModelName.isNotEmpty())
+            candidates.find { it.name == charState.toolModelName }
+          else null) ?: candidates.minByOrNull { it.sizeInBytes }
+      if (chosen != null) {
+        viewModel.setToolSupport(chosen, ToolExecutor(WebSearchTools(), KakaoShareTools(context)))
+      } else {
+        viewModel.setToolSupport(null, null)
+      }
     }
   }
 

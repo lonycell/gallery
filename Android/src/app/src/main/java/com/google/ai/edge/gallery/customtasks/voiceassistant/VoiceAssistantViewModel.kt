@@ -49,6 +49,9 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.TopicPrompt
 import com.google.ai.edge.gallery.customtasks.voiceassistant.prompts.VoiceAssistantPromptSource
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.runtime.runtimeHelper
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineTts
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -1640,17 +1643,93 @@ constructor(
 
   // endregion
 
-  // The (currently no-op) tool router for the planned 2-model design (docs/TOOL_ROUTER_PLAN.md).
-  // With NoopRouter the chat flow is unchanged; a later phase swaps in a FunctionGemma router.
+  // --- 2-model tool routing (docs/TOOL_ROUTER_PLAN.md) ---
+  // Set only on "path B" (the chat model can't do function calling itself): a small tool model
+  // decides tool calls (expose-only), we execute them here, and the chat model phrases the reply.
+  // Both null on "path A" (tool-capable chat model) — then the flow is exactly the single-model one.
+  private var toolModel: Model? = null
+  private var toolExecutor: ToolExecutor? = null
   private var toolRouter: ToolRouter = NoopRouter
+  private val toolInitMutex = Mutex()
 
-  /** Installs the tool router consulted before the chat model (defaults to [NoopRouter]). */
-  fun setToolRouter(router: ToolRouter) {
-    toolRouter = router
+  /**
+   * Wires (or clears) the secondary tool model. [model] is a downloaded tool-capable model (e.g. a
+   * small Gemma); [executor] runs the chosen tools. Pass null/null to disable routing (path A).
+   */
+  fun setToolSupport(model: Model?, executor: ToolExecutor?) {
+    toolModel = model
+    toolExecutor = executor
+    toolRouter =
+      if (model != null) LlmToolRouter(defaultToolSpecs()) { prompt -> inferToolModel(model, prompt) }
+      else NoopRouter
   }
 
-  /** Tool names the router may choose from. Phase 2 will also include connected skills/MCP tools. */
-  private fun availableToolNames(): List<String> = listOf("web_search", "kakao_share")
+  /** Tool names the router may choose from. */
+  private fun availableToolNames(): List<String> = defaultToolSpecs().map { it.name }
+
+  /**
+   * If a tool model is wired and it decides a tool is needed, runs the tool(s) and returns an
+   * augmented prompt (user text + tool results) for the chat model to phrase. Returns null when no
+   * tool is needed (or routing isn't available) — the caller then uses the raw text.
+   */
+  private suspend fun runToolsIfNeeded(text: String): String? {
+    val executor = toolExecutor ?: return null
+    val calls =
+      try {
+        toolRouter.route(text, availableToolNames())
+      } catch (e: Throwable) {
+        Log.w(TAG, "Tool routing failed; proceeding without tools", e)
+        return null
+      }
+    if (calls.isEmpty()) return null
+    val results = calls.joinToString("\n\n") { call -> "[${call.name}] ${executor.execute(call)}" }
+    return "사용자가 이렇게 말했어: \"$text\"\n\n도구 실행 결과:\n$results\n\n" +
+      "이 결과를 바탕으로 너의 캐릭터 말투로 자연스럽게 한국어로 답해줘. JSON이나 원문을 그대로 읽지 말고 " +
+      "핵심만 자연스럽게 전해."
+  }
+
+  /** Lazily initializes the tool model (tools OFF = expose-only) and runs one inference, returning its full text. */
+  private suspend fun inferToolModel(model: Model, prompt: String): String {
+    if (!ensureToolModelInitialized(model)) return ""
+    return suspendCancellableCoroutine { cont ->
+      val builder = StringBuilder()
+      try {
+        model.runtimeHelper.runInference(
+          model = model,
+          input = prompt,
+          resultListener = { partial, done, _ ->
+            if (!partial.startsWith("<ctrl")) builder.append(partial)
+            if (done && cont.isActive) cont.resumeWith(Result.success(builder.toString()))
+          },
+          cleanUpListener = {},
+          onError = { _ -> if (cont.isActive) cont.resumeWith(Result.success("")) },
+          coroutineScope = viewModelScope,
+        )
+      } catch (e: Throwable) {
+        if (cont.isActive) cont.resumeWith(Result.success(""))
+      }
+    }
+  }
+
+  private suspend fun ensureToolModelInitialized(model: Model): Boolean {
+    if (model.instance != null) return true
+    toolInitMutex.withLock {
+      if (model.instance != null) return true
+      suspendCancellableCoroutine<Unit> { cont ->
+        model.runtimeHelper.initialize(
+          context = context,
+          model = model,
+          taskId = VOICE_ASSISTANT_TASK_ID,
+          supportImage = false,
+          supportAudio = false,
+          onDone = { _ -> if (cont.isActive) cont.resumeWith(Result.success(Unit)) },
+          tools = emptyList(),
+          enableConversationConstrainedDecoding = false,
+        )
+      }
+    }
+    return model.instance != null
+  }
 
   private fun submitUserInput(text: String, model: Model? = null) {
     val activeModel = model ?: pendingModel
@@ -1670,22 +1749,11 @@ constructor(
       )
     }
     syncActiveMessages()
-    // Phase 1 seam: consult the tool router before the chat model. With NoopRouter this resolves
-    // synchronously to "no tools" and runs exactly as before. Phase 2 will execute any returned tool
-    // calls, synthesize their results into the prompt, and only then call the chat model.
+    // Path A (tool-capable chat model): toolExecutor is null → runs the raw text exactly as before.
+    // Path B: route via the tool model; if a tool is used, the chat model gets an augmented prompt.
     viewModelScope.launch {
-      val toolCalls =
-        try {
-          toolRouter.route(text, availableToolNames())
-        } catch (e: Throwable) {
-          Log.w(TAG, "Tool router failed; proceeding without tools", e)
-          emptyList<ToolCall>()
-        }
-      if (toolCalls.isNotEmpty()) {
-        // TODO(phase 2): execute toolCalls, build a tool-result context, and pass it to runLlm.
-        Log.i(TAG, "Tool router requested ${toolCalls.size} call(s); execution lands in phase 2.")
-      }
-      runLlm(activeModel, text)
+      val augmented = runToolsIfNeeded(text)
+      runLlm(activeModel, augmented ?: text)
     }
   }
 
