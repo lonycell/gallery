@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.CheckCircle as CheckCircleOutlin
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -102,6 +103,7 @@ fun VoiceChatSettingsScreen(
   mcpManagerViewModel: McpManagerViewModel,
   characterViewModel: CharacterViewModel,
   onOpenSubscription: () -> Unit,
+  onOpenHome: () -> Unit,
   navigateUp: () -> Unit,
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -390,6 +392,40 @@ fun VoiceChatSettingsScreen(
                 "모든 기능과 캐릭터를 잠금 해제",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+              )
+            }
+          }
+        }
+      }
+
+      // --- Back to the original Gallery home ---
+      SettingsSection(title = "홈", subtitle = "원래 Gallery 홈 화면으로 이동") {
+        Surface(
+          onClick = onOpenHome,
+          shape = RoundedCornerShape(14.dp),
+          color = MaterialTheme.colorScheme.surfaceVariant,
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Icon(
+              Icons.Rounded.Home,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                "홈 화면으로",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+              )
+              Text(
+                "원래 Gallery 홈으로 이동",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
             }
           }

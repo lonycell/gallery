@@ -230,6 +230,7 @@ fun GalleryNavHost(
           mcpManagerViewModel = hiltViewModel(parentEntry),
           characterViewModel = hiltViewModel(parentEntry),
           onOpenSubscription = { navController.navigate(ROUTE_SUBSCRIPTION) },
+          onOpenHome = { navController.navigate(ROUTE_HOMESCREEN) },
           navigateUp = { navController.navigateUp() },
         )
       }
