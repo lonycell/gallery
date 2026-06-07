@@ -550,26 +550,30 @@ private fun LlmModelRow(
         )
       }
       Spacer(modifier = Modifier.width(8.dp))
-      when {
-        selected ->
-          Icon(
-            Icons.Rounded.CheckCircle,
-            contentDescription = "선택됨",
-            tint = MaterialTheme.colorScheme.primary,
-          )
-        downloading -> {} // progress bar is shown below the row
-        downloaded ->
-          // Downloaded but not the active model: a dimmed, unfilled check makes it clear the row is
-          // selectable (tap to select), vs the filled CheckCircle for the active one.
-          Icon(
-            Icons.Outlined.CheckCircleOutlined,
-            contentDescription = "탭하여 선택",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-          )
-        else ->
-          IconButton(onClick = onDownload) {
-            Icon(Icons.Rounded.Download, contentDescription = "받기")
-          }
+      // Fixed-width trailing slot so the check / download icons line up vertically across all rows
+      // (a bare Icon is 24dp while an IconButton is 48dp — centering both in the same box aligns them).
+      Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        when {
+          selected ->
+            Icon(
+              Icons.Rounded.CheckCircle,
+              contentDescription = "선택됨",
+              tint = MaterialTheme.colorScheme.primary,
+            )
+          downloading -> {} // progress bar is shown below the row
+          downloaded ->
+            // Downloaded but not the active model: a dimmed, unfilled check makes it clear the row is
+            // selectable (tap to select), vs the filled CheckCircle for the active one.
+            Icon(
+              Icons.Outlined.CheckCircleOutlined,
+              contentDescription = "탭하여 선택",
+              tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            )
+          else ->
+            IconButton(onClick = onDownload) {
+              Icon(Icons.Rounded.Download, contentDescription = "받기")
+            }
+        }
       }
     }
 
