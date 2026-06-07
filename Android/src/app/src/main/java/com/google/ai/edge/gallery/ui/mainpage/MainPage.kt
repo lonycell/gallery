@@ -134,6 +134,7 @@ import com.google.ai.edge.gallery.customtasks.agentchat.decodeBase64ToBitmap
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatInputMode
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessage
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ChatMessageKind
+import com.google.ai.edge.gallery.customtasks.voiceassistant.TOOL_MODEL_AUTO
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ToolExecutor
 import com.google.ai.edge.gallery.customtasks.voiceassistant.ToolProgressData
 import com.google.ai.edge.gallery.customtasks.voiceassistant.modelSupportsFunctionCalling
@@ -336,24 +337,29 @@ private fun VoiceChatContent(
       it.status == ModelDownloadStatusType.SUCCEEDED
     },
   ) {
-    if (modelSupportsFunctionCalling(selectedModel.name)) {
-      viewModel.setToolSupport(null, null)
-    } else {
-      val candidates =
-        voiceTask?.models.orEmpty().filter { m ->
-          m.name != selectedModel.name &&
-            modelSupportsFunctionCalling(m.name) &&
-            modelManagerUiState.modelDownloadStatus[m.name]?.status ==
-              ModelDownloadStatusType.SUCCEEDED
+    val pref = charState.toolModelName
+    when {
+      // Path A: the chat model does tools itself → no secondary model.
+      modelSupportsFunctionCalling(selectedModel.name) -> viewModel.setToolSupport(null, null)
+      // "없음": don't load a second model at all (run the chat model standalone — avoids the
+      // two-models-loaded crash). This is the default.
+      pref.isEmpty() -> viewModel.setToolSupport(null, null)
+      else -> {
+        val candidates =
+          voiceTask?.models.orEmpty().filter { m ->
+            m.name != selectedModel.name &&
+              modelSupportsFunctionCalling(m.name) &&
+              modelManagerUiState.modelDownloadStatus[m.name]?.status ==
+                ModelDownloadStatusType.SUCCEEDED
+          }
+        val chosen =
+          if (pref == TOOL_MODEL_AUTO) candidates.minByOrNull { it.sizeInBytes }
+          else candidates.find { it.name == pref }
+        if (chosen != null) {
+          viewModel.setToolSupport(chosen, ToolExecutor(WebSearchTools(), KakaoShareTools(context)))
+        } else {
+          viewModel.setToolSupport(null, null)
         }
-      val chosen =
-        (if (charState.toolModelName.isNotEmpty())
-            candidates.find { it.name == charState.toolModelName }
-          else null) ?: candidates.minByOrNull { it.sizeInBytes }
-      if (chosen != null) {
-        viewModel.setToolSupport(chosen, ToolExecutor(WebSearchTools(), KakaoShareTools(context)))
-      } else {
-        viewModel.setToolSupport(null, null)
       }
     }
   }

@@ -74,6 +74,7 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.NeuralVoiceStage
 import com.google.ai.edge.gallery.customtasks.voiceassistant.NeuralVoiceState
 import com.google.ai.edge.gallery.customtasks.voiceassistant.SttEngine
 import com.google.ai.edge.gallery.customtasks.voiceassistant.TtsSpeakMode
+import com.google.ai.edge.gallery.customtasks.voiceassistant.TOOL_MODEL_AUTO
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
 import com.google.ai.edge.gallery.customtasks.voiceassistant.modelSupportsFunctionCalling
@@ -188,10 +189,12 @@ fun VoiceChatSettingsScreen(
 
       // --- Tool model (2-model design) ---
       // Only consulted when the chat model can't do function calling itself; lets a downloaded
-      // tool-capable model (e.g. a small Gemma) provide tools. "자동" picks one automatically.
+      // tool-capable model (e.g. a small Gemma) provide tools. "없음" = no second model (run the chat
+      // model standalone); "자동" picks the smallest one. Default is "없음" so two models aren't
+      // loaded (which can OOM/crash on some devices) unless the user opts in.
       SettingsSection(
         title = "도구 담당 모델",
-        subtitle = "대화 모델이 도구 호출(웹검색 등)을 직접 못 할 때, 이를 대신할 보조 모델",
+        subtitle = "대화 모델이 도구 호출(웹검색 등)을 직접 못 할 때 대신할 보조 모델. '없음'이면 보조 모델을 띄우지 않아요(메모리 절약).",
       ) {
         val toolCandidates =
           (voiceTask?.models.orEmpty()).filter { m ->
@@ -202,8 +205,11 @@ fun VoiceChatSettingsScreen(
           modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          ChoiceChip("자동", charState.toolModelName.isEmpty()) {
+          ChoiceChip("없음", charState.toolModelName.isEmpty()) {
             characterViewModel.setToolModel("")
+          }
+          ChoiceChip("자동", charState.toolModelName == TOOL_MODEL_AUTO) {
+            characterViewModel.setToolModel(TOOL_MODEL_AUTO)
           }
           toolCandidates.forEach { m ->
             ChoiceChip(m.name, charState.toolModelName == m.name) {

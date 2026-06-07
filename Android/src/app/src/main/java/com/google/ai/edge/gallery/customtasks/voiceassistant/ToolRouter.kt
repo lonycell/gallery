@@ -61,6 +61,12 @@ fun modelSupportsFunctionCalling(modelName: String): Boolean {
   return n.contains("gemma") || n.contains("qwen3")
 }
 
+/**
+ * Value of the tool-model setting meaning "auto-pick the smallest downloaded tool-capable model".
+ * An empty setting means "none" (don't load a secondary model at all).
+ */
+const val TOOL_MODEL_AUTO = "auto"
+
 /** A tool the router may choose, described for the router prompt. */
 data class ToolSpec(
   val name: String,
