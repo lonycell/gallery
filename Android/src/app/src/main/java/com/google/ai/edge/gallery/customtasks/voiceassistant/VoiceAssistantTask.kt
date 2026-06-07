@@ -184,13 +184,21 @@ class VoiceAssistantTask(
   }
 
   /**
-   * Whether [model] supports litert-lm function calling + constrained decoding. Today only the Gemma
-   * family ships the tool-calling vocabulary/template; turning tools + constrained decoding on for
-   * other models (Qwen, DeepSeek, …) crashes the native runtime when the conversation is created. For
-   * those we fall back to plain chat (no tools), which is far better than crashing.
+   * Whether [model] supports litert-lm function calling + constrained decoding. Only a few model
+   * types ship the tool-calling vocabulary/template that litert-lm's constrained decoding needs;
+   * turning tools on for others crashes the native runtime when the conversation is created, so we
+   * fall back to plain chat (no tools) — far better than crashing.
+   *
+   * Currently enabled for:
+   *  - Gemma family (incl. FunctionGemma, the 270M function-calling specialist)
+   *  - Qwen3 (litert-lm officially supports the Qwen3 type for function calling)
+   *
+   * Deliberately NOT enabled for Qwen2/Qwen2.5, DeepSeek, Llama, Phi, … (no FC metadata → crash).
    */
-  private fun supportsFunctionCalling(model: Model): Boolean =
-    model.name.contains("gemma", ignoreCase = true)
+  private fun supportsFunctionCalling(model: Model): Boolean {
+    val name = model.name.lowercase()
+    return name.contains("gemma") || name.contains("qwen3")
+  }
 
   override fun cleanUpModelFn(
     context: Context,
