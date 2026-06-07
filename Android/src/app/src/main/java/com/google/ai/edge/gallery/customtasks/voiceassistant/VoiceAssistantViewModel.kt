@@ -1640,6 +1640,18 @@ constructor(
 
   // endregion
 
+  // The (currently no-op) tool router for the planned 2-model design (docs/TOOL_ROUTER_PLAN.md).
+  // With NoopRouter the chat flow is unchanged; a later phase swaps in a FunctionGemma router.
+  private var toolRouter: ToolRouter = NoopRouter
+
+  /** Installs the tool router consulted before the chat model (defaults to [NoopRouter]). */
+  fun setToolRouter(router: ToolRouter) {
+    toolRouter = router
+  }
+
+  /** Tool names the router may choose from. Phase 2 will also include connected skills/MCP tools. */
+  private fun availableToolNames(): List<String> = listOf("web_search", "kakao_share")
+
   private fun submitUserInput(text: String, model: Model? = null) {
     val activeModel = model ?: pendingModel
     if (activeModel == null) {
@@ -1658,7 +1670,23 @@ constructor(
       )
     }
     syncActiveMessages()
-    runLlm(activeModel, text)
+    // Phase 1 seam: consult the tool router before the chat model. With NoopRouter this resolves
+    // synchronously to "no tools" and runs exactly as before. Phase 2 will execute any returned tool
+    // calls, synthesize their results into the prompt, and only then call the chat model.
+    viewModelScope.launch {
+      val toolCalls =
+        try {
+          toolRouter.route(text, availableToolNames())
+        } catch (e: Throwable) {
+          Log.w(TAG, "Tool router failed; proceeding without tools", e)
+          emptyList<ToolCall>()
+        }
+      if (toolCalls.isNotEmpty()) {
+        // TODO(phase 2): execute toolCalls, build a tool-result context, and pass it to runLlm.
+        Log.i(TAG, "Tool router requested ${toolCalls.size} call(s); execution lands in phase 2.")
+      }
+      runLlm(activeModel, text)
+    }
   }
 
   // Guards a single in-flight generation. Bumped on every new generation (and when the watchdog gives
