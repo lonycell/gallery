@@ -45,3 +45,18 @@ object NoopRouter : ToolRouter {
   override suspend fun route(userText: String, availableTools: List<String>): List<ToolCall> =
     emptyList()
 }
+
+/**
+ * Whether the model named [modelName] supports litert-lm function calling + constrained decoding.
+ * Only a few model types ship the tool-calling vocabulary/template that constrained decoding needs;
+ * enabling tools for others crashes the native runtime at conversation creation.
+ *
+ * Shared by (1) the chat-model gate in `VoiceAssistantTask` and (2) the "tool model" picker, which
+ * may only offer models that can actually emit tool calls.
+ *
+ * Currently: Gemma family (incl. FunctionGemma) and Qwen3. NOT Qwen2/Qwen2.5, DeepSeek, Llama, Phi.
+ */
+fun modelSupportsFunctionCalling(modelName: String): Boolean {
+  val n = modelName.lowercase()
+  return n.contains("gemma") || n.contains("qwen3")
+}

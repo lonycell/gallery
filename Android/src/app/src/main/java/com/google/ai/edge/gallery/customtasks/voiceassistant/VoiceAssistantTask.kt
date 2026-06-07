@@ -195,10 +195,8 @@ class VoiceAssistantTask(
    *
    * Deliberately NOT enabled for Qwen2/Qwen2.5, DeepSeek, Llama, Phi, … (no FC metadata → crash).
    */
-  private fun supportsFunctionCalling(model: Model): Boolean {
-    val name = model.name.lowercase()
-    return name.contains("gemma") || name.contains("qwen3")
-  }
+  private fun supportsFunctionCalling(model: Model): Boolean =
+    modelSupportsFunctionCalling(model.name)
 
   override fun cleanUpModelFn(
     context: Context,

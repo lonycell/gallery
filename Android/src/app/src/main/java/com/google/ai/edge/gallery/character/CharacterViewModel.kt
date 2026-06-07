@@ -54,6 +54,9 @@ class CharacterViewModel @Inject constructor(private val repository: CharacterRe
 
   fun setDefaultVoice(voiceId: String) = repository.setDefaultVoice(voiceId)
 
+  /** Sets the global tool model (empty = "auto"). See docs/TOOL_ROUTER_PLAN.md. */
+  fun setToolModel(modelName: String) = repository.setToolModel(modelName)
+
   fun needsModelInit(signature: String): Boolean = repository.needsModelInit(signature)
 
   fun requestGreeting(characterId: String) = repository.requestGreeting(characterId)

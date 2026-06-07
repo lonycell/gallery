@@ -50,6 +50,12 @@ data class CharacterState(
   val defaultVoiceId: String = "",
   /** Per-character user customizations (name/personality/photo/background/…), merged onto the base. */
   val overrides: Map<String, CharacterOverride> = emptyMap(),
+  /**
+   * Global "tool model" used to provide function calling for chat models that can't (the 2-model
+   * design). Empty = "auto" (pick a downloaded tool-capable model, or none). A specific model name
+   * pins that model. See docs/TOOL_ROUTER_PLAN.md.
+   */
+  val toolModelName: String = "",
 )
 
 /**
@@ -87,6 +93,7 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       voiceByCharacter = decodeVoices(prefs.getStringSet(KEY_VOICES, emptySet())),
       defaultVoiceId = prefs.getString(KEY_DEFAULT_VOICE, "") ?: "",
       overrides = decodeOverrides(prefs.getString(KEY_OVERRIDES, null)),
+      toolModelName = prefs.getString(KEY_TOOL_MODEL, "") ?: "",
     )
   }
 
@@ -100,8 +107,16 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
       .putStringSet(KEY_VOICES, encodeVoices(newState.voiceByCharacter))
       .putString(KEY_DEFAULT_VOICE, newState.defaultVoiceId)
       .putString(KEY_OVERRIDES, gson.toJson(newState.overrides))
+      .putString(KEY_TOOL_MODEL, newState.toolModelName)
       .apply()
     _state.value = newState
+  }
+
+  /** Sets the global tool model (empty = "auto"). See docs/TOOL_ROUTER_PLAN.md. */
+  fun setToolModel(modelName: String) {
+    if (modelName != _state.value.toolModelName) {
+      persist(_state.value.copy(toolModelName = modelName))
+    }
   }
 
   // Customizations are stored as JSON (Map<characterId, CharacterOverride>).
@@ -258,5 +273,6 @@ class CharacterRepository @Inject constructor(@ApplicationContext context: Conte
     const val KEY_VOICES = "voice_by_character"
     const val KEY_DEFAULT_VOICE = "default_voice_id"
     const val KEY_OVERRIDES = "character_overrides"
+    const val KEY_TOOL_MODEL = "tool_model_name"
   }
 }

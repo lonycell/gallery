@@ -75,6 +75,7 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.SttEngine
 import com.google.ai.edge.gallery.customtasks.voiceassistant.TtsSpeakMode
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VOICE_ASSISTANT_TASK_ID
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
+import com.google.ai.edge.gallery.customtasks.voiceassistant.modelSupportsFunctionCalling
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
@@ -181,6 +182,41 @@ fun VoiceChatSettingsScreen(
               onDownload = { modelManagerViewModel.downloadModel(task = voiceTask, model = model) },
             )
           }
+        }
+      }
+
+      // --- Tool model (2-model design) ---
+      // Only consulted when the chat model can't do function calling itself; lets a downloaded
+      // tool-capable model (e.g. a small Gemma) provide tools. "자동" picks one automatically.
+      SettingsSection(
+        title = "도구 담당 모델",
+        subtitle = "대화 모델이 도구 호출(웹검색 등)을 직접 못 할 때, 이를 대신할 보조 모델",
+      ) {
+        val toolCandidates =
+          (voiceTask?.models.orEmpty()).filter { m ->
+            modelManagerUiState.modelDownloadStatus[m.name]?.status ==
+              ModelDownloadStatusType.SUCCEEDED && modelSupportsFunctionCalling(m.name)
+          }
+        Row(
+          modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          ChoiceChip("자동", charState.toolModelName.isEmpty()) {
+            characterViewModel.setToolModel("")
+          }
+          toolCandidates.forEach { m ->
+            ChoiceChip(m.name, charState.toolModelName == m.name) {
+              characterViewModel.setToolModel(m.name)
+            }
+          }
+        }
+        if (toolCandidates.isEmpty()) {
+          Spacer(modifier = Modifier.height(6.dp))
+          Text(
+            "툴콜을 지원하는 모델(예: Gemma)을 먼저 다운로드하면 여기서 고를 수 있어요.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
         }
       }
 
