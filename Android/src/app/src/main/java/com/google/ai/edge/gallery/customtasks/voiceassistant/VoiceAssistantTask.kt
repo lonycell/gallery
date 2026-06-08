@@ -127,9 +127,6 @@ class VoiceAssistantTask(
         } catch (e: Exception) {
           emptyList()
         }
-      val hasTools = toolsPrompt.isNotEmpty()
-      val hasSkills = selectedSkills.any { it.selected }
-
       // litert-lm function calling + constrained decoding is only supported by the Gemma family.
       // Enabling tools / constrained decoding for other models (Qwen2.5, DeepSeek-R1, …) crashes the
       // native runtime at conversation creation, so those run as plain chat (no tools).
@@ -150,9 +147,10 @@ class VoiceAssistantTask(
         toolSets.add(tool(KakaoShareTools(context = context.applicationContext)))
         // Built-in internet search; it reports progress via the shared agentTools.
         toolSets.add(tool(WebSearchTools(agentTools = agentTools)))
-        if (hasTools || hasSkills) {
-          toolSets.add(tool(agentTools))
-        }
+        // Always expose the agent tools (loadSkill/runMcpTool/runJs/runIntent) so the model can
+        // invoke skills/MCP/JS/intents at any time, even when no skill is pre-selected — matching
+        // the Agent Skills integration intent (the model decides when to reach for a tool).
+        toolSets.add(tool(agentTools))
       }
 
       // Restore this character's prior conversation into the LLM context so it "remembers" the chat
