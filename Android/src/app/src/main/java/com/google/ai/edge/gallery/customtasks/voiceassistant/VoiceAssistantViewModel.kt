@@ -114,6 +114,64 @@ private val SENTENCE_TERMINATORS = charArrayOf('.', '!', '?', '…', '。', '！
 // doesn't stall on a long terminator-less passage.
 private const val STREAMING_SOFT_FLUSH_CHARS = 60
 
+// Max characters per neural/cloud TTS synthesis request. The on-device neural engine (sherpa-onnx
+// VITS/MeloTTS) has a fixed token limit and fails on a long whole-message input, so we split a long
+// reply into sentence-sized chunks and synthesize/play them in sequence. The system TTS engine
+// chunks internally, so this only applies to the neural/cloud paths.
+private const val TTS_MAX_CHUNK_CHARS = 160
+
+/**
+ * Splits [text] into chunks no longer than [maxChars] for sequential TTS synthesis, breaking at
+ * sentence terminators and (for an over-long sentence) at word boundaries. Returns an empty list for
+ * blank input. Keeps terminators so prosody is preserved.
+ */
+internal fun splitForSynthesis(text: String, maxChars: Int = TTS_MAX_CHUNK_CHARS): List<String> {
+  val trimmed = text.trim()
+  if (trimmed.isEmpty()) return emptyList()
+  if (trimmed.length <= maxChars) return listOf(trimmed)
+
+  val chunks = mutableListOf<String>()
+  val current = StringBuilder()
+
+  fun appendPiece(piece: String) {
+    val parts = if (piece.length > maxChars) hardWrapForSynthesis(piece, maxChars) else listOf(piece)
+    for (part in parts) {
+      if (current.isNotEmpty() && current.length + part.length > maxChars) {
+        chunks.add(current.toString().trim())
+        current.clear()
+      }
+      current.append(part)
+    }
+  }
+
+  var sentenceStart = 0
+  for (i in trimmed.indices) {
+    if (trimmed[i] in SENTENCE_TERMINATORS) {
+      appendPiece(trimmed.substring(sentenceStart, i + 1))
+      sentenceStart = i + 1
+    }
+  }
+  if (sentenceStart < trimmed.length) appendPiece(trimmed.substring(sentenceStart))
+  if (current.isNotBlank()) chunks.add(current.toString().trim())
+  return chunks.filter { it.isNotEmpty() }
+}
+
+/** Hard-wraps a single over-long sentence at word boundaries (falling back to a char cut). */
+private fun hardWrapForSynthesis(text: String, maxChars: Int): List<String> {
+  val out = mutableListOf<String>()
+  var start = 0
+  while (start < text.length) {
+    var end = minOf(start + maxChars, text.length)
+    if (end < text.length) {
+      val lastSpace = text.lastIndexOf(' ', end - 1)
+      if (lastSpace > start) end = lastSpace + 1
+    }
+    out.add(text.substring(start, end))
+    start = end
+  }
+  return out
+}
+
 /** Discriminates items shown in the voice-chat transcript. */
 enum class ChatMessageKind {
   TEXT,
@@ -1990,13 +2048,18 @@ constructor(
     viewModelScope.launch {
       _uiState.update { it.copy(isSpeaking = true) }
       try {
-        val audio = withContext(Dispatchers.IO) { cloudTtsService.synthesize(voiceId, text) }
-        if (audio != null) {
-          audioPlayer.play(samples = audio.samples, sampleRate = audio.sampleRate)
-        } else {
-          _uiState.update { it.copy(error = "음성 API 호출에 실패했어요. 설정의 인증 정보를 확인해주세요.") }
+        // Split a long reply so each request stays within the provider's per-call text limit.
+        for (chunk in splitForSynthesis(text)) {
+          val audio = withContext(Dispatchers.IO) { cloudTtsService.synthesize(voiceId, chunk) }
+          if (audio != null) {
+            audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+          } else {
+            _uiState.update { it.copy(error = "음성 API 호출에 실패했어요. 설정의 인증 정보를 확인해주세요.") }
+            break
+          }
         }
       } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Log.w(TAG, "Cloud TTS playback failed", e)
       } finally {
         _uiState.update { it.copy(isSpeaking = false) }
@@ -2009,10 +2072,15 @@ constructor(
     viewModelScope.launch {
       _uiState.update { it.copy(isSpeaking = true) }
       try {
-        val audio =
-          withContext(Dispatchers.Default) { engine.generate(text = text, sid = safeSid, speed = 1.0f) }
-        audioPlayer.play(samples = audio.samples, sampleRate = audio.sampleRate)
+        // The neural engine has a fixed token limit, so synthesize the reply chunk by chunk and play
+        // each to completion in order rather than feeding the whole (possibly long) message at once.
+        for (chunk in splitForSynthesis(text)) {
+          val audio =
+            withContext(Dispatchers.Default) { engine.generate(text = chunk, sid = safeSid, speed = 1.0f) }
+          audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+        }
       } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Log.w(TAG, "Neural TTS synthesis failed", e)
       } finally {
         _uiState.update { it.copy(isSpeaking = false) }
@@ -2119,12 +2187,15 @@ constructor(
       return
     }
     val selectedId = _uiState.value.selectedVoiceId
-    // Cloud (commercial API) voice: synthesize the segment, then play it to completion.
+    // Cloud (commercial API) voice: synthesize the segment, then play it to completion. A burst of
+    // tokens can make a "segment" span several sentences, so chunk it to stay within the text limit.
     if (cloudTtsService.isCloudVoice(selectedId)) {
       try {
-        val audio = withContext(Dispatchers.IO) { cloudTtsService.synthesize(selectedId, spoken) }
-        if (audio != null) {
-          audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+        for (chunk in splitForSynthesis(spoken)) {
+          val audio = withContext(Dispatchers.IO) { cloudTtsService.synthesize(selectedId, chunk) }
+          if (audio != null) {
+            audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+          }
         }
       } catch (e: Throwable) {
         if (e !is kotlinx.coroutines.CancellationException) {
@@ -2139,11 +2210,13 @@ constructor(
     if (engine != null) {
       val safeSid = sid.coerceIn(0, (engine.numSpeakers() - 1).coerceAtLeast(0))
       try {
-        val audio =
-          withContext(Dispatchers.Default) {
-            engine.generate(text = spoken, sid = safeSid, speed = 1.0f)
-          }
-        audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+        for (chunk in splitForSynthesis(spoken)) {
+          val audio =
+            withContext(Dispatchers.Default) {
+              engine.generate(text = chunk, sid = safeSid, speed = 1.0f)
+            }
+          audioPlayer.playToCompletion(samples = audio.samples, sampleRate = audio.sampleRate)
+        }
       } catch (e: Throwable) {
         if (e !is kotlinx.coroutines.CancellationException) {
           Log.w(TAG, "Streaming neural synthesis failed", e)

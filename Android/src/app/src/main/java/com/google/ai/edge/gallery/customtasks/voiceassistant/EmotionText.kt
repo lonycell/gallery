@@ -41,6 +41,10 @@ private val speechSymbolRegex = Regex("[$SPEECH_SYMBOL_RANGES]")
 // Markdown / read-aloud-unfriendly punctuation to drop (keeps normal sentence punctuation).
 private val markdownRegex = Regex("[*_#`~|>\\\\^•]")
 private val whitespaceRegex = Regex("\\s+")
+// Parenthetical/bracketed asides — e.g. stage directions like "(부드러운 목소리로)" or "[웃으며]" —
+// removed from spoken text so they aren't read aloud awkwardly. Bounded length so a stray opener
+// can't swallow the whole reply. The on-screen text keeps them.
+private val parentheticalRegex = Regex("[(\\uFF08\\[][^)\\uFF09\\]]{0,80}[)\\uFF09\\]]")
 
 // A complete fenced code block: ```lang\n ... ``` (optional language, multiline body). Removed from
 // spoken text entirely so the engine never reads code aloud.
@@ -78,6 +82,7 @@ fun speakableStreamingView(full: String): String {
  */
 fun sanitizeForSpeech(text: String): String =
   stripCodeForSpeech(text)
+    .replace(parentheticalRegex, " ")
     .replace(speechSymbolRegex, " ")
     .replace(markdownRegex, " ")
     .replace(whitespaceRegex, " ")
