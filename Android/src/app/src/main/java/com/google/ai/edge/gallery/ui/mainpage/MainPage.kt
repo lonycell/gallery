@@ -22,6 +22,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -49,6 +51,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -59,7 +62,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RestartAlt
@@ -86,6 +92,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -112,7 +119,9 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantTask
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantUiState
 import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewModel
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import com.google.ai.edge.gallery.ui.common.GalleryWebView
 import com.google.ai.edge.gallery.ui.common.MarkdownText
+import com.google.ai.edge.gallery.ui.common.chat.LogsViewer
 import kotlinx.coroutines.delay
 
 // Shared palette with the subscription paywall for a consistent, futuristic look.
@@ -219,6 +228,12 @@ private fun VoiceChatContent(
     mcpManagerViewModel = mcpManagerViewModel,
     agentTools = voiceCustomTask.agentTools,
   )
+
+  // Drains the agent-tools action channel for THIS (chat) screen: runs JS skills, shows the
+  // ask-info / permission dialogs and feeds tool/skill progress into the reply's panel — giving the
+  // main chat the same tool/skill capabilities as the Agent Chat screen. Only hosted here (not in
+  // settings) so there is a single channel consumer.
+  VoiceAgentActionHost(agentTools = voiceCustomTask.agentTools, viewModel = viewModel)
 
   // Pick the model to chat with: prefer the currently-selected model if it is one of this task's
   // (downloaded) LLMs, otherwise the first downloaded LLM. Selection + download happens in settings.
@@ -656,10 +671,14 @@ private fun VoiceChatBubble(
   onNewChat: () -> Unit,
 ) {
   val isUser = message.role == ChatMessage.Role.USER
-  // An assistant reply that hasn't produced any text yet: show an animated typing indicator.
-  val isTyping = !isUser && message.isStreaming && message.text.isBlank()
   val text = message.text
-  if (text.isBlank() && !isTyping) return
+  val hasText = text.isNotBlank()
+  val hasTool = message.toolTitle.isNotEmpty() || message.toolSteps.isNotEmpty()
+  val hasImages = message.images.isNotEmpty()
+  val hasWebviews = message.webviews.isNotEmpty()
+  // An assistant reply that hasn't produced anything yet: show an animated typing indicator.
+  val isTyping = !isUser && message.isStreaming && !hasText && !hasTool && !hasImages && !hasWebviews
+  if (!hasText && !hasTool && !hasImages && !hasWebviews && !isTyping) return
 
   var menuOpen by remember { mutableStateOf(false) }
   val clipboard = LocalClipboardManager.current
@@ -694,73 +713,221 @@ private fun VoiceChatBubble(
       } else {
         Modifier.clip(shape).background(Color.White.copy(alpha = 0.14f))
       }
-    Box(
-      modifier =
-        Modifier.widthIn(max = 280.dp)
-          .then(bubbleModifier)
-          .combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
+
+    // A reply can show several stacked elements: a tool/skill progress panel, the text bubble, and
+    // any image/webview a tool produced — all keeping the chat's dark design.
+    Column(
+      modifier = Modifier.widthIn(max = 280.dp),
+      horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+      verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-      if (isTyping) {
-        TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
-      } else if (isUser) {
-        // User input is plain text — render verbatim (no markdown parsing).
-        Text(
-          text = text,
-          color = Color.White,
-          fontSize = 15.sp,
-          lineHeight = 21.sp,
-          modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-        )
-      } else {
-        // Assistant replies may contain markdown / code blocks — render them properly (code shows
-        // in a monospace block). The same text is read aloud with code stripped out (see TTS).
-        MarkdownText(
-          text = text,
-          smallFontSize = true,
-          textColor = Color.White,
-          modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+      if (hasTool) {
+        VoiceToolPanel(message = message)
+      }
+
+      if (isTyping || hasText) {
+        Box(
+          modifier =
+            bubbleModifier.combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
+        ) {
+          if (isTyping) {
+            TypingDots(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
+          } else if (isUser) {
+            // User input is plain text — render verbatim (no markdown parsing).
+            Text(
+              text = text,
+              color = Color.White,
+              fontSize = 15.sp,
+              lineHeight = 21.sp,
+              modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            )
+          } else {
+            // Assistant replies may contain markdown / code blocks — render them properly (code shows
+            // in a monospace block). The same text is read aloud with code stripped out (see TTS).
+            MarkdownText(
+              text = text,
+              smallFontSize = true,
+              textColor = Color.White,
+              modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            )
+          }
+          // Long-press menu. More actions can be added here later.
+          DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+              text = { Text("메시지 복사") },
+              leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null) },
+              onClick = {
+                menuOpen = false
+                clipboard.setText(AnnotatedString(message.text))
+                Toast.makeText(context, "복사했어요", Toast.LENGTH_SHORT).show()
+              },
+            )
+            if (!isUser) {
+              DropdownMenuItem(
+                text = { Text("다시 답하기") },
+                leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
+                onClick = {
+                  menuOpen = false
+                  onRegenerate()
+                },
+              )
+            }
+            DropdownMenuItem(
+              text = { Text("이전 대화 삭제") },
+              enabled = canDeleteBefore,
+              leadingIcon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null) },
+              onClick = {
+                menuOpen = false
+                onDeleteBefore()
+              },
+            )
+            DropdownMenuItem(
+              text = { Text("새 대화 시작") },
+              leadingIcon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
+              onClick = {
+                menuOpen = false
+                onNewChat()
+              },
+            )
+          }
+        }
+      }
+
+      // Tool/skill-produced images.
+      for (bitmap in message.images) {
+        Image(
+          bitmap = bitmap.asImageBitmap(),
+          contentDescription = null,
+          contentScale = ContentScale.Fit,
+          modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)),
         )
       }
-      // Long-press menu. More actions can be added here later.
-      DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-        DropdownMenuItem(
-          text = { Text("메시지 복사") },
-          leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null) },
-          onClick = {
-            menuOpen = false
-            clipboard.setText(AnnotatedString(message.text))
-            Toast.makeText(context, "복사했어요", Toast.LENGTH_SHORT).show()
-          },
-        )
-        if (!isUser) {
-          DropdownMenuItem(
-            text = { Text("다시 답하기") },
-            leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
-            onClick = {
-              menuOpen = false
-              onRegenerate()
-            },
-          )
-        }
-        DropdownMenuItem(
-          text = { Text("이전 대화 삭제") },
-          enabled = canDeleteBefore,
-          leadingIcon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null) },
-          onClick = {
-            menuOpen = false
-            onDeleteBefore()
-          },
-        )
-        DropdownMenuItem(
-          text = { Text("새 대화 시작") },
-          leadingIcon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
-          onClick = {
-            menuOpen = false
-            onNewChat()
-          },
-        )
+
+      // Tool/skill-produced webviews.
+      for (webview in message.webviews) {
+        VoiceWebViewResult(webview = webview)
       }
     }
+  }
+}
+
+/**
+ * Dark-themed, collapsible tool/skill progress panel matching the chat design — the main-page
+ * equivalent of Agent Chat's [MessageBodyCollapsableProgressPanel]. Shows a spinner while a step
+ * runs, then the accumulated steps (title + description) and an optional console-logs viewer.
+ */
+@Composable
+private fun VoiceToolPanel(message: ChatMessage) {
+  var expanded by remember { mutableStateOf(false) }
+  var showLogs by remember { mutableStateOf(false) }
+
+  Column(
+    modifier =
+      Modifier.fillMaxWidth()
+        .clip(RoundedCornerShape(14.dp))
+        .background(Color.White.copy(alpha = 0.10f))
+        .clickable { expanded = !expanded }
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Box(contentAlignment = Alignment.Center, modifier = Modifier.size(18.dp)) {
+        if (message.toolInProgress) {
+          CircularProgressIndicator(
+            modifier = Modifier.size(14.dp),
+            strokeWidth = 2.dp,
+            color = ListeningColor,
+          )
+        } else {
+          Icon(
+            Icons.Rounded.Check,
+            contentDescription = null,
+            tint = ListeningColor,
+            modifier = Modifier.size(16.dp),
+          )
+        }
+      }
+      Text(
+        text = message.toolTitle.ifEmpty { "도구 사용" },
+        color = Color.White.copy(alpha = 0.92f),
+        fontSize = 13.sp,
+        modifier = Modifier.weight(1f),
+      )
+      Icon(
+        imageVector =
+          if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+        contentDescription = null,
+        tint = Color.White.copy(alpha = 0.7f),
+        modifier = Modifier.size(20.dp),
+      )
+    }
+
+    AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+      Column(
+        modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        for (item in message.toolSteps) {
+          Row(
+            modifier =
+              Modifier.clip(RoundedCornerShape(10.dp))
+                .background(Color.White.copy(alpha = 0.06f))
+                .padding(10.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            Box(
+              modifier =
+                Modifier.padding(top = 4.dp)
+                  .size(8.dp)
+                  .clip(CircleShape)
+                  .background(AccentPink)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+              Text(item.title, color = Color.White, fontSize = 12.sp)
+              if (item.description.isNotEmpty()) {
+                Text(
+                  item.description,
+                  color = Color.White.copy(alpha = 0.6f),
+                  fontSize = 11.sp,
+                  lineHeight = 15.sp,
+                  modifier = Modifier.padding(top = 2.dp),
+                )
+              }
+            }
+          }
+        }
+        if (message.toolLogs.isNotEmpty()) {
+          Text(
+            text = "콘솔 로그 보기 (${message.toolLogs.size})",
+            color = ListeningColor,
+            fontSize = 12.sp,
+            modifier = Modifier.clickable { showLogs = true }.padding(vertical = 2.dp),
+          )
+        }
+      }
+    }
+  }
+
+  if (showLogs) {
+    LogsViewer(logs = message.toolLogs, onDismissRequest = { showLogs = false })
+  }
+}
+
+/** Renders a tool/skill-produced webview result inside the chat, with rounded corners. */
+@Composable
+private fun VoiceWebViewResult(webview: com.google.ai.edge.gallery.common.CallJsSkillResultWebview) {
+  val url = webview.url ?: return
+  val ratio = webview.aspectRatio ?: 1.333f
+  Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))) {
+    GalleryWebView(
+      modifier = Modifier.fillMaxWidth().aspectRatio(ratio),
+      initialUrl = url,
+      useIframeWrapper = webview.iframe == true,
+      preventParentScrolling = true,
+    )
   }
 }
 

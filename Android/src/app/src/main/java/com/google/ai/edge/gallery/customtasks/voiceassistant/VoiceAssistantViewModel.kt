@@ -36,6 +36,7 @@ import com.google.ai.edge.gallery.common.PermissionResult
 import com.google.ai.edge.gallery.common.RequestPermissionAgentAction
 import com.google.ai.edge.gallery.common.SkillProgressAgentAction
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
+import com.google.ai.edge.gallery.customtasks.agentchat.decodeBase64ToBitmap
 import com.google.ai.edge.gallery.customtasks.speech.AudioPlayer
 import com.google.ai.edge.gallery.customtasks.speech.AudioRecorder
 import com.google.ai.edge.gallery.customtasks.speech.KoreanNeuralStt
@@ -72,6 +73,8 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "AGVoiceAssistant"
 private const val ASSISTANT_UTTERANCE_ID = "va_assistant_utterance"
+// DataStore key for the persisted TTS speak mode (a global preference, not per-character).
+private const val SPEAK_MODE_PREF_KEY = "va_speak_mode"
 
 // Hidden prompt that makes the character open the conversation with a short, in-persona greeting.
 private const val GREETING_PROMPT =
@@ -86,7 +89,25 @@ private val SENTENCE_TERMINATORS = charArrayOf('.', '!', '?', '…', '。', '！
 private const val STREAMING_SOFT_FLUSH_CHARS = 60
 
 /** A single message in the voice conversation. */
-data class ChatMessage(val role: Role, val text: String, val isStreaming: Boolean = false) {
+data class ChatMessage(
+  val role: Role,
+  val text: String,
+  val isStreaming: Boolean = false,
+  // --- UI-only agent activity attached to this (assistant) turn. NOT persisted, NOT spoken, NOT fed
+  // back to the LLM — purely for showing tool/skill execution like the Agent Chat screen does. ---
+  /** Title of the tool/skill progress panel (e.g. "Calling MCP tool …"); empty = no panel. */
+  val toolTitle: String = "",
+  /** Whether the panel shows a spinner (a step is still running). */
+  val toolInProgress: Boolean = false,
+  /** Accumulated tool/skill steps shown in the (collapsible) progress panel. */
+  val toolSteps: List<com.google.ai.edge.gallery.ui.common.chat.ProgressPanelItem> = emptyList(),
+  /** JS-skill console logs surfaced via the panel's "logs" chip. */
+  val toolLogs: List<com.google.ai.edge.gallery.ui.common.chat.LogMessage> = emptyList(),
+  /** Images produced by a tool/skill, shown below the reply. */
+  val images: List<android.graphics.Bitmap> = emptyList(),
+  /** Webviews produced by a tool/skill, shown below the reply. */
+  val webviews: List<com.google.ai.edge.gallery.common.CallJsSkillResultWebview> = emptyList(),
+) {
   enum class Role {
     USER,
     ASSISTANT,
@@ -209,6 +230,7 @@ constructor(
   private val entryParams: VoiceAssistantEntryParams,
   private val chatHistoryStore: ChatHistoryStore,
   private val cloudTtsService: com.google.ai.edge.gallery.customtasks.speech.CloudTtsService,
+  private val dataStoreRepository: com.google.ai.edge.gallery.data.DataStoreRepository,
 ) : ViewModel(), RecognitionListener {
 
   private val _uiState = MutableStateFlow(VoiceAssistantUiState())
@@ -299,6 +321,12 @@ constructor(
   private val systemVoicesById = mutableMapOf<String, Voice>()
 
   init {
+    // Restore the persisted speak mode (it's a global preference, not per-character), so the choice
+    // survives navigation and ViewModel recreation. Read off the main thread.
+    viewModelScope.launch {
+      val savedMode = withContext(Dispatchers.IO) { readPersistedSpeakMode() }
+      _uiState.update { it.copy(speakMode = savedMode) }
+    }
     // Resolve the entry topic into a prompt bundle for the title + starters. We intentionally peek
     // (don't consume) so the Task's model initialization can also read the same topic.
     viewModelScope.launch {
@@ -494,6 +522,16 @@ constructor(
     }
     stopSpeaking()
     _uiState.update { it.copy(speakMode = mode) }
+    // Persist so the choice survives navigation / ViewModel recreation (it's in-memory otherwise).
+    viewModelScope.launch(Dispatchers.IO) {
+      dataStoreRepository.saveSecret(SPEAK_MODE_PREF_KEY, mode.name)
+    }
+  }
+
+  /** Reads the persisted speak mode (default [TtsSpeakMode.AFTER_COMPLETE] if unset/invalid). */
+  private fun readPersistedSpeakMode(): TtsSpeakMode {
+    val saved = dataStoreRepository.readSecret(SPEAK_MODE_PREF_KEY)
+    return TtsSpeakMode.values().firstOrNull { it.name == saved } ?: TtsSpeakMode.AFTER_COMPLETE
   }
 
   // region Speech recognition (STT)
@@ -1209,49 +1247,18 @@ constructor(
   // region Tools / MCP
 
   /**
-   * Attaches the shared [AgentTools] (already wired with skill/MCP managers by the screen) and
-   * starts consuming its action channel so MCP tool-call permission prompts and progress are
-   * surfaced. Safe to call repeatedly; only the first call starts the collector.
+   * Stores the shared [AgentTools] reference (already wired with skill/MCP managers by the screen).
+   * The action channel is consumed by the chat screen (it needs a WebView host, dialogs and
+   * permission launchers to fully run skills/tools, exactly like the Agent Chat screen) — not here.
+   * Safe to call repeatedly.
    */
   fun attachAgentTools(tools: AgentTools) {
-    if (agentTools === tools) {
-      return
-    }
     agentTools = tools
-    viewModelScope.launch {
-      for (action in tools.actionChannel) {
-        handleAgentAction(action)
-      }
-    }
   }
 
-  private fun handleAgentAction(action: AgentAction) {
-    when (action) {
-      is AskMcpToolCallPermissionAction -> {
-        // Surface a permission dialog; the screen completes action.result via [resolveMcpPermission].
-        _mcpPermissionRequest.value = action
-      }
-      is SkillProgressAgentAction -> {
-        // Reflect tool activity as a short status line; clear it when the step finishes.
-        _uiState.update {
-          it.copy(toolActivity = if (action.inProgress) action.label else "")
-        }
-      }
-      // The following actions need a UI surface the voice flow doesn't provide (web view, free-text
-      // input, runtime Android permission). Their `runMcpTool`/skill callers await a result, so we
-      // MUST complete the deferred immediately to avoid hanging the inference; we resolve them as
-      // "unsupported"/denied so the model can move on and tell the user.
-      is CallJsAgentAction -> {
-        action.result.complete(
-          "{\"error\":\"JS skills are not supported in the Voice Assistant\",\"status\":\"failed\"}"
-        )
-      }
-      is AskInfoAgentAction -> action.result.complete("")
-      is RequestPermissionAgentAction -> action.result.complete(false)
-      else -> {
-        // Nothing else is emitted by the tools we expose.
-      }
-    }
+  /** Surfaces the MCP tool-call permission dialog (resolved via [resolveMcpPermission]). */
+  fun requestMcpPermission(action: AskMcpToolCallPermissionAction) {
+    _mcpPermissionRequest.value = action
   }
 
   /** Completes a pending MCP tool-call permission request with the user's choice. */
@@ -1259,6 +1266,82 @@ constructor(
     val pending = _mcpPermissionRequest.value ?: return
     pending.result.complete(result)
     _mcpPermissionRequest.value = null
+  }
+
+  // --- Agent activity (tool/skill execution) attached to the current assistant turn ---
+
+  /** Runs [transform] on the latest assistant message and writes it back. */
+  private fun updateLastAssistant(transform: (ChatMessage) -> ChatMessage) {
+    _uiState.update { state ->
+      val messages = state.messages.toMutableList()
+      val lastIndex = messages.indexOfLast { it.role == ChatMessage.Role.ASSISTANT }
+      if (lastIndex >= 0) {
+        messages[lastIndex] = transform(messages[lastIndex])
+      }
+      state.copy(messages = messages)
+    }
+    syncActiveMessages()
+  }
+
+  /**
+   * Records a tool/skill progress step on the current reply's panel: updates the title/spinner and,
+   * when [addItemTitle] is non-empty, appends a step item. Mirrors the Agent Chat progress panel.
+   */
+  fun appendToolStep(
+    title: String,
+    inProgress: Boolean,
+    addItemTitle: String,
+    addItemDescription: String,
+  ) {
+    updateLastAssistant { m ->
+      m.copy(
+        toolTitle = title.ifEmpty { m.toolTitle },
+        toolInProgress = inProgress,
+        toolSteps =
+          if (addItemTitle.isNotEmpty()) {
+            m.toolSteps +
+              com.google.ai.edge.gallery.ui.common.chat.ProgressPanelItem(
+                title = addItemTitle,
+                description = addItemDescription,
+              )
+          } else {
+            m.toolSteps
+          },
+      )
+    }
+    // Keep the status line / mic-orb in sync (panel is the primary surface).
+    _uiState.update { it.copy(toolActivity = if (inProgress) title else "") }
+  }
+
+  /** Appends a JS-skill console log line to the current reply's panel. */
+  fun appendToolLog(log: com.google.ai.edge.gallery.ui.common.chat.LogMessage) {
+    updateLastAssistant { it.copy(toolLogs = it.toolLogs + log) }
+  }
+
+  /** Attaches a tool/skill-produced image to the current reply. */
+  fun addResultImage(bitmap: android.graphics.Bitmap) {
+    updateLastAssistant { it.copy(images = it.images + bitmap) }
+  }
+
+  /** Attaches a tool/skill-produced webview to the current reply. */
+  fun addResultWebView(webview: com.google.ai.edge.gallery.common.CallJsSkillResultWebview) {
+    updateLastAssistant { it.copy(webviews = it.webviews + webview) }
+  }
+
+  /**
+   * At end of a turn, attaches any image/webview a tool/skill produced (held on [agentTools]) to the
+   * current reply and stops the panel spinner. Mirrors Agent Chat's onGenerateResponseDone handling.
+   */
+  private fun attachToolResults() {
+    val tools = agentTools
+    tools?.resultImageToShow?.base64?.let { base64 ->
+      decodeBase64ToBitmap(base64)?.let { bitmap -> addResultImage(bitmap) }
+    }
+    tools?.resultImageToShow = null
+    tools?.resultWebviewToShow?.let { webview -> addResultWebView(webview) }
+    tools?.resultWebviewToShow = null
+    // The reply is done; stop any lingering panel spinner.
+    updateLastAssistant { if (it.toolInProgress) it.copy(toolInProgress = false) else it }
   }
 
   /** Updates the count of available MCP tools (drives the "tools available" UI). */
@@ -1333,7 +1416,10 @@ constructor(
             }
             if (done) {
               val full = builder.toString().trim()
-              _uiState.update { it.copy(isThinking = false) }
+              _uiState.update { it.copy(isThinking = false, toolActivity = "") }
+              // Surface any image/webview a tool/skill produced this turn (Agent Chat parity), then
+              // mark the panel as finished.
+              attachToolResults()
               if (streamingSpeech) {
                 finishStreamingSpeech(speakableStreamingView(builder.toString()))
               } else if (full.isNotEmpty()) {

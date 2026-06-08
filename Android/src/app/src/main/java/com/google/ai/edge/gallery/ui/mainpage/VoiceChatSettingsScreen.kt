@@ -33,8 +33,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.Button
@@ -79,7 +81,11 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewM
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import androidx.compose.ui.platform.LocalContext
+import com.google.ai.edge.gallery.ui.common.DownloadAndTryButton
+import com.google.ai.edge.gallery.ui.common.MemoryWarningAlert
 import com.google.ai.edge.gallery.ui.common.humanReadableSize
+import com.google.ai.edge.gallery.ui.common.isMemoryLow
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
 /**
@@ -99,6 +105,7 @@ fun VoiceChatSettingsScreen(
   mcpManagerViewModel: McpManagerViewModel,
   characterViewModel: CharacterViewModel,
   onOpenSubscription: () -> Unit,
+  onOpenHome: () -> Unit,
   navigateUp: () -> Unit,
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
@@ -121,8 +128,12 @@ fun VoiceChatSettingsScreen(
     )
   }
 
+  val context = LocalContext.current
   var showSkillSheet by remember { mutableStateOf(false) }
   var showMcpSheet by remember { mutableStateOf(false) }
+  // Set when the user picks a model the device may be too small to load, so we warn before
+  // selecting it (loading a too-large model gets the app OOM-killed by the system).
+  var memoryWarningModel by remember { mutableStateOf<Model?>(null) }
 
   if (showSkillSheet && voiceCustomTask != null) {
     SkillManagerBottomSheet(
@@ -135,6 +146,15 @@ fun VoiceChatSettingsScreen(
     McpManagerBottomSheet(
       mcpManagerViewModel = mcpManagerViewModel,
       onDismiss = { showMcpSheet = false },
+    )
+  }
+  memoryWarningModel?.let { warned ->
+    MemoryWarningAlert(
+      onProceeded = {
+        modelManagerViewModel.selectModel(warned)
+        memoryWarningModel = null
+      },
+      onDismissed = { memoryWarningModel = null },
     )
   }
 
@@ -177,8 +197,17 @@ fun VoiceChatSettingsScreen(
               model = model,
               selected = modelManagerUiState.selectedModel.name == model.name,
               downloadStatus = modelManagerUiState.modelDownloadStatus[model.name],
-              onSelect = { modelManagerViewModel.selectModel(model) },
-              onDownload = { modelManagerViewModel.downloadModel(task = voiceTask, model = model) },
+              task = voiceTask,
+              modelManagerViewModel = modelManagerViewModel,
+              onSelect = {
+                // Warn before loading a model the device may be too small for, instead of letting
+                // the system OOM-kill the app mid-load.
+                if (isMemoryLow(context = context, model = model)) {
+                  memoryWarningModel = model
+                } else {
+                  modelManagerViewModel.selectModel(model)
+                }
+              },
             )
           }
         }
@@ -352,6 +381,46 @@ fun VoiceChatSettingsScreen(
         }
       }
 
+      // --- Old home screen ---
+      SettingsSection(title = "고급", subtitle = "모델·벤치마크 등 기존 홈 화면") {
+        Surface(
+          onClick = onOpenHome,
+          shape = RoundedCornerShape(14.dp),
+          color = MaterialTheme.colorScheme.surfaceVariant,
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Icon(
+              Icons.Rounded.Home,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                "기존 홈 화면으로 이동",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+              Text(
+                "모델 관리·벤치마크 등 원래 갤러리 화면을 엽니다",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Icon(
+              Icons.AutoMirrored.Rounded.ArrowForward,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+      }
+
       Spacer(modifier = Modifier.height(8.dp))
     }
   }
@@ -413,8 +482,9 @@ private fun LlmModelRow(
   model: Model,
   selected: Boolean,
   downloadStatus: ModelDownloadStatus?,
+  task: com.google.ai.edge.gallery.data.Task?,
+  modelManagerViewModel: ModelManagerViewModel,
   onSelect: () -> Unit,
-  onDownload: () -> Unit,
 ) {
   val statusType = downloadStatus?.status
   val downloaded = statusType == ModelDownloadStatusType.SUCCEEDED
@@ -427,7 +497,6 @@ private fun LlmModelRow(
   val total = downloadStatus?.totalBytes ?: 0L
   val received = downloadStatus?.receivedBytes ?: 0L
   val percent = if (total > 0L) ((received * 100) / total).toInt().coerceIn(0, 100) else -1
-  val showDeterminate = downloading && !unzipping && percent in 0..100
   // Human-readable download size from the allowlist (model file + any extra data files). Prefer the
   // precomputed total, then the raw model size, then the in-progress total once reported.
   val sizeBytes =
@@ -470,32 +539,32 @@ private fun LlmModelRow(
         )
       }
       Spacer(modifier = Modifier.width(8.dp))
-      when {
-        selected ->
+      if (downloaded) {
+        if (selected) {
           Icon(
             Icons.Rounded.CheckCircle,
             contentDescription = "선택됨",
             tint = MaterialTheme.colorScheme.primary,
           )
-        downloading -> {} // progress bar is shown below the row
-        downloaded -> {} // tap-to-select handled by the row
-        else ->
-          IconButton(onClick = onDownload) {
-            Icon(Icons.Rounded.Download, contentDescription = "받기")
-          }
-      }
-    }
-
-    // Progress bar, mirroring the STT/TTS download rows.
-    if (downloading) {
-      Spacer(modifier = Modifier.height(8.dp))
-      if (showDeterminate) {
-        LinearProgressIndicator(
-          progress = { percent / 100f },
-          modifier = Modifier.fillMaxWidth(),
-        )
+        }
+        // else: tap-to-select is handled by the whole row.
       } else {
-        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        // Reuse the shared download control so gated HuggingFace models go through the same
+        // auth (login) / user-agreement / Gemma-TOS / memory checks as the main model list. A direct
+        // downloadModel() call skips all of that and silently fails for gated models like
+        // MobileActions-270M (the row just appeared to "do nothing"). This shows the download button,
+        // a token-check state, progress + cancel, and any required dialogs.
+        DownloadAndTryButton(
+          task = task,
+          model = model,
+          enabled = true,
+          downloadStatus = statusType ?: ModelDownloadStatusType.NOT_DOWNLOADED,
+          downloadProgress = if (total > 0L) (received.toFloat() / total).coerceIn(0f, 1f) else 0f,
+          modelManagerViewModel = modelManagerViewModel,
+          onClicked = onSelect,
+          compact = true,
+          canShowTryIt = false,
+        )
       }
     }
   }

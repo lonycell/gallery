@@ -132,51 +132,49 @@ class VoiceAssistantTask(
 
       val finalPrompt =
         buildString {
+          // 1) Persona / identity — kept so ordinary chat stays in character.
           if (basePrompt.isNotEmpty()) append(basePrompt)
-          // KakaoTalk send tool is always available (see customtasks/kakao). Tell the model how to
-          // use it, and to confirm with the user before sending (it's an irreversible action).
+
+          // 2) Tool-use policy. This deliberately mirrors the Agent Skills screen's imperative,
+          // call-the-tool-first style (which triggers function calls reliably on small on-device
+          // models), with a casual-chat escape hatch so the companion still chats normally when no
+          // tool is relevant. The "act silently, then give a short spoken answer" rule keeps the
+          // model from merely *talking about* searching instead of actually calling the tool.
           if (isNotEmpty()) append("\n\n")
           append(
-            "사용자가 카카오톡(카톡) 메시지를 보내달라고 명확히 말하면 `sendKakaoMessage` 도구를 " +
-              "호출하세요. 보내기 전에 수신자와 메시지 내용을 사용자에게 요약해 확인받으세요. " +
-              "실제 전송은 카카오톡 화면에서 사용자가 수신자를 고르고 확정합니다."
-          )
-          append("\n\n")
-          append(
-            "최신 뉴스·오늘의 사실·시세·일정처럼 시의성이 있거나 당신이 확실히 알지 못하는 정보가 " +
-              "필요하면, 말로 설명하기 전에 먼저 `searchWeb` 도구를 실제로 호출하세요. \"검색해볼게요\" 같은 " +
-              "말만 하고 도구를 호출하지 않거나, 호출하지도 않고 검색했다고 말하지 마세요. 도구 결과를 " +
-              "받은 뒤에만 그 내용을 바탕으로 핵심만 간결히 정리해 답하고, 결과가 없거나 불확실하면 " +
-              "솔직히 그렇게 말하세요. 음성으로 읽히므로 코드·표·URL 나열은 피하고 짧고 자연스럽게 답하세요."
+            "도구 사용 규칙 (매우 중요):\n" +
+              "사용자의 요청이 아래 검색·스킬·도구로 처리할 수 있는 것이면, 말로 설명하기 전에 먼저 그 도구를 " +
+              "반드시 호출하세요. 도구를 부르는 과정의 중간 생각·설명·상태 문구(\"검색해볼게요\" 등)는 절대 " +
+              "출력하지 마세요. 호출하지도 않고 했다고 말하면 안 됩니다. 도구 결과를 받은 뒤에만 그 내용을 " +
+              "바탕으로 한두 문장으로 자연스럽게 답하세요. 음성으로 읽히므로 코드·표·URL 나열은 피하세요. " +
+              "적합한 도구가 전혀 없으면 평소처럼 너의 성격으로 대화하세요.\n" +
+              "- 최신·오늘·시세·뉴스·일정 등 시의성 있거나 확실히 알지 못하는 정보가 필요하면 `searchWeb` 를 호출.\n" +
+              "- 카카오톡(카톡) 메시지 전송 요청이면 `sendKakaoMessage` 를 호출(보내기 전 수신자·내용을 확인)."
           )
           if (hasSkills) {
-            if (isNotEmpty()) append("\n\n")
             append(
-              "다음 스킬들을 사용할 수 있습니다. 어떤 스킬이 사용자의 요청에 맞으면 `loadSkill`로 " +
-                "스킬을 불러와 그 지시를 따르세요.\n\n" + skillsPrompt
+              "\n- 아래 스킬 중 사용자의 요청에 맞는 것이 있으면 `loadSkill` 로 불러와 그 지시를 정확히 " +
+                "따르세요. 사용 가능한 스킬:\n" + skillsPrompt
             )
           }
           if (hasTools) {
-            if (isNotEmpty()) append("\n\n")
             append(
-              "다음 도구들을 사용할 수 있습니다. 사용자의 요청을 처리하려면 적절한 도구를 " +
-                "`runMcpTool`로 호출하세요. 도구 이름은 아래 목록에서 정확히 사용하세요.\n\n" +
-                toolsPrompt
+              "\n- 아래 MCP 도구 중 적합한 것이 있으면 `runMcpTool` 로 호출하세요(이름은 목록에서 정확히 " +
+                "사용). 사용 가능한 도구:\n" + toolsPrompt
             )
           }
         }
       val instruction: Contents? =
         if (finalPrompt.isNotEmpty()) Contents.of(listOf(Content.Text(finalPrompt))) else null
 
-      // The KakaoTalk share tool is always offered; skills/MCP are added only when present. Function
-      // calling is therefore always enabled.
+      // Register the same tool surface every turn so function calling is always enabled: KakaoTalk
+      // send, built-in web search, and the shared agent tools (loadSkill / runMcpTool / runIntent /
+      // runJs) — matching the Agent Skills screen which always exposes `tool(agentTools)`.
       val toolSets = mutableListOf<ToolProvider>()
       toolSets.add(tool(KakaoShareTools(context = context.applicationContext)))
       // Built-in internet search is always available; it reports progress via the shared agentTools.
       toolSets.add(tool(WebSearchTools(agentTools = agentTools)))
-      if (hasTools || hasSkills) {
-        toolSets.add(tool(agentTools))
-      }
+      toolSets.add(tool(agentTools))
 
       // Restore this character's prior conversation into the LLM context so it "remembers" the chat
       // (the screen restores the on-screen messages from the same store). Newest messages last.
