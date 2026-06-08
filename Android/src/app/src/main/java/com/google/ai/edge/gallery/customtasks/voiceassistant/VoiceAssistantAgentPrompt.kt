@@ -16,6 +16,7 @@
 
 package com.google.ai.edge.gallery.customtasks.voiceassistant
 
+import com.google.ai.edge.gallery.customtasks.agentchat.injectSkillsAndMcpTools
 import com.google.ai.edge.gallery.proto.Skill
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -31,7 +32,7 @@ internal val VOICE_AGENT_SKILLS_BASE_PROMPT =
   CRITICAL RULE: You MUST execute all steps silently. Do NOT generate or output any internal thoughts, reasoning, explanations, or intermediate text at ANY step.
 
   1. EVALUATE AND ROUTE:
-     Determine if the request should be handled by a "Skill" or directly by an "MCP Tool".
+     Determine if the request should be handled by a "Skill" (requires loading instructions) or directly by an "MCP Tool".
      - If it is a Skill: Go to Step 2.
      - If it is an MCP Tool: Go to Step 4.
      - If nothing is found, output "No skills or tools found" and stop.
@@ -46,13 +47,9 @@ internal val VOICE_AGENT_SKILLS_BASE_PROMPT =
   FLOW A: SKILL EXECUTION
   ==================================================
 
-  2. Find the most relevant skill from the --- SKILLS --- list. Each skill's full instructions are ALREADY included above, so you do NOT need to call `load_skill`. You MUST NOT use `run_intent` or `runMcpTool` to start a skill at this step.
+  2. Find the most relevant skill from the --- SKILLS --- list. You MUST NOT use `run_intent` or `runMcpTool` under any circumstances at this step.
 
-  3. Follow that skill's instructions exactly and DIRECTLY call the tool they specify (this is almost always `run_js`). When calling `run_js`, pass:
-     - `skillName`: the exact skill name shown in the list above (e.g. "query-wikipedia").
-     - `scriptName`: "index.html" unless the skill's instructions name a different script.
-     - `data`: the JSON string described by the skill's instructions.
-     You MUST actually call the tool — never just say you will.
+  3. Use the `load_skill` tool to read its instructions. Follow the skill's instructions exactly to complete the task.
      - You MUST NOT output any intermediate thoughts or status updates. No exceptions!
      - Output ONLY the final result when successful. It should contain a one-sentence summary of the action taken and the final result of the skill.
      - Stop here once Flow A is complete.
@@ -77,17 +74,15 @@ private val VOICE_AGENT_SKILLS_ONLY_BASE_PROMPT =
 
   CRITICAL RULE: You MUST execute all steps silently. Do NOT generate or output any internal thoughts, reasoning, explanations, or intermediate text at ANY step.
 
-  1. First, find the most relevant skill from the following list. Each skill's full instructions are ALREADY included, so you do NOT need to call `load_skill`:
+  1. First, find the most relevant skill from the following list:
 
   ___SKILLS___
 
-  2. If a relevant skill exists, follow its instructions exactly and DIRECTLY call the tool they specify (this is almost always `run_js`). When calling `run_js`, pass:
-     - `skillName`: the exact skill name shown in the list above (e.g. "query-wikipedia").
-     - `scriptName`: "index.html" unless the skill's instructions name a different script.
-     - `data`: the JSON string described by the skill's instructions.
-     You MUST actually call the tool — never just say you will. You MUST NOT use `run_intent` unless the skill's instructions explicitly tell you to.
+  After this step you MUST go to next step. You MUST NOT use `run_intent` under any circumstances at this step.
 
-  3. You MUST NOT output any intermediate thoughts or status updates. No exceptions! Output ONLY the final result when successful. It should contain one-sentence summary of the action taken, and the final result of the skill.
+  2. If a relevant skill exists, use the `load_skill` tool to read its instructions. You MUST NOT use `run_intent` under any circumstances at this step.
+
+  3. Follow the skill's instructions exactly to complete the task. You MUST NOT output any intermediate thoughts or status updates. No exceptions! Output ONLY the final result when successful. It should contain one-sentence summary of the action taken, and the final result of the skill.
 
   4. If no relevant skill is found, output "No relevant skills found" and stop.
   """
@@ -116,21 +111,6 @@ private fun voiceDeliveryInstructions(): String =
     "요약하세요. 도구나 스킬을 사용할 때는 반드시 해당 도구를 실제로 호출하세요."
 
 /**
- * Renders each selected skill with its FULL instructions inline (not just name + description). This
- * lets the model act on a skill with a single `run_js` call instead of the two-step
- * `load_skill` → `run_js` protocol that small/streaming models often abandon after the first call.
- */
-private fun skillsWithInstructions(skills: List<Skill>): String =
-  skills.joinToString("\n\n") { skill ->
-    buildString {
-      append("### Skill: \"${skill.name}\"\n")
-      append("Description: ${skill.description}\n")
-      append("Instructions:\n")
-      append(skill.instructions.trim())
-    }
-  }
-
-/**
  * Assembles the full system instruction for the main voice chat: character persona, built-in tools,
  * and (when present) Agent-Skills-style skill/MCP injection.
  */
@@ -146,13 +126,13 @@ internal fun buildVoiceAssistantSystemInstruction(
   val agentBase =
     if (hasTools) VOICE_AGENT_SKILLS_BASE_PROMPT else VOICE_AGENT_SKILLS_ONLY_BASE_PROMPT
 
-  // Inject the skills' full instructions inline so the model can call `run_js` directly without a
-  // separate `load_skill` round-trip; MCP tool schemas are injected via ___TOOLS___ as before.
   val agentSection =
     if (hasSkills || hasTools) {
-      agentBase
-        .replace("___SKILLS___", skillsWithInstructions(selectedSkills))
-        .replace("___TOOLS___", toolsPrompt)
+      injectSkillsAndMcpTools(
+        baseSystemPrompt = agentBase,
+        skills = selectedSkills,
+        toolsPrompt = toolsPrompt,
+      ).toString()
     } else {
       ""
     }
