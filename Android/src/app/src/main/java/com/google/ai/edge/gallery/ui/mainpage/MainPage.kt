@@ -607,7 +607,21 @@ private fun VoiceChatContent(
               avatarUri = selectedCharacter.imageUri,
               onDeleteBefore = { index -> viewModel.deleteMessagesBefore(index) },
               onRegenerate = { index -> viewModel.regenerate(index) },
-              onNewChat = { viewModel.clearConversation() },
+              onNewChat = {
+                // Clear the chat, then (once the empty history is on disk) force a model re-init so
+                // the LLM conversation is rebuilt fresh — without this the native context (and any
+                // degenerate state) survives and "new chat" has no effect.
+                viewModel.clearConversation {
+                  if (selectedModel.name.isNotEmpty()) {
+                    modelManagerViewModel.initializeModel(
+                      context = context,
+                      task = voiceTask,
+                      model = selectedModel,
+                      force = true,
+                    )
+                  }
+                }
+              },
               onContinue = continueTalking,
               isMuted = uiState.isMuted,
               onToggleMute = { viewModel.toggleMute() },

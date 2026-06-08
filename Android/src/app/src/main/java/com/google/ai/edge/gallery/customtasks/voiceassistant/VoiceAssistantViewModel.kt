@@ -1098,14 +1098,28 @@ constructor(
   }
 
   /** Clears the whole active conversation and starts fresh. */
-  fun clearConversation() {
+  /**
+   * Clears the on-screen conversation and the persisted history, and invalidates any in-flight
+   * generation so its tokens can't leak into the fresh chat. [onCleared] runs after the now-empty
+   * history has been written to disk, so a caller can force-reinitialize the model (which reads that
+   * store) to rebuild a fresh LLM context — otherwise the native conversation keeps its old, possibly
+   * degenerate, context and "new chat" has no real effect.
+   */
+  fun clearConversation(onCleared: () -> Unit = {}) {
     stopListening()
     stopSpeaking()
+    cancelStreamingSpeech()
+    generationSeq++ // invalidate any running generation's late callbacks
+    finishGeneration()
     _uiState.update {
       it.copy(messages = emptyList(), isThinking = false, partialTranscript = "", error = "")
     }
     syncActiveMessages()
-    persistActive()
+    val convId = activeConversationId
+    viewModelScope.launch {
+      withContext(Dispatchers.IO) { chatHistoryStore.save(convId, emptyList()) }
+      onCleared()
+    }
   }
 
   /** Persists [messages] for [conversationId] to disk off the main thread. */
