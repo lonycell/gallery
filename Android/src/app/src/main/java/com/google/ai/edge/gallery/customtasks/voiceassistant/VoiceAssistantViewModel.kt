@@ -1890,19 +1890,15 @@ constructor(
         model = model,
         input = input,
         resultListener = { partialResult, done, thought ->
-          // DIAGNOSTIC: shows exactly what the model streams (content vs control/thought tokens) so
-          // we can tell whether it is emitting a tool call or just chatting. Remove once resolved.
-          Log.i(
-            TAG,
-            "stream partial=${partialResult.take(80).replace("\n", "\\n")} done=$done " +
-              "thought=${thought?.take(40)?.replace("\n", "\\n")}",
-          )
           if (activeConversationId == convId && generationSeq == genId) {
             // Any output (content or thought) counts as progress — keep the watchdog from firing.
             lastOutputAt.set(android.os.SystemClock.elapsedRealtime())
             if (!partialResult.startsWith("<ctrl")) {
               if (!firstTokenHandled && partialResult.isNotEmpty()) {
                 firstTokenHandled = true
+                // Diagnostic: log only the start (first visible token) and the end (see done below),
+                // not every token, so the log isn't flooded.
+                Log.i(TAG, "stream start: ${partialResult.take(80).replace("\n", "\\n")}")
                 onAgentToolsFirstToken()
               }
               builder.append(partialResult)
@@ -1930,6 +1926,7 @@ constructor(
               }
             }
             if (done) {
+              Log.i(TAG, "stream end: ${builder.length} chars")
               finishGeneration()
               onAgentToolsResponseDone()
               val full = builder.toString().trim()
