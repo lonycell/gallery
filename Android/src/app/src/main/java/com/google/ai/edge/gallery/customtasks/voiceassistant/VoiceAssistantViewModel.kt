@@ -266,9 +266,9 @@ enum class SttEngine {
 
 /** When the assistant's spoken reply is produced relative to the LLM's text generation. */
 enum class TtsSpeakMode {
-  /** Speak only after the full reply has been generated (default; most natural prosody). */
+  /** Speak only after the full reply has been generated (most natural prosody). */
   AFTER_COMPLETE,
-  /** Speak sentence-by-sentence as the reply streams in, for much lower time-to-first-audio. */
+  /** Speak sentence-by-sentence as the reply streams in (default), for much lower time-to-first-audio. */
   STREAMING,
 }
 
@@ -304,8 +304,8 @@ data class VoiceAssistantUiState(
   val voices: List<VoiceOption> = listOf(),
   /** The currently selected voice id. */
   val selectedVoiceId: String = "",
-  /** Whether the reply is spoken after completion (default) or streamed sentence-by-sentence. */
-  val speakMode: TtsSpeakMode = TtsSpeakMode.AFTER_COMPLETE,
+  /** Whether the reply is streamed sentence-by-sentence (default) or spoken after completion. */
+  val speakMode: TtsSpeakMode = TtsSpeakMode.STREAMING,
   /** State of the downloadable Korean neural voice (KSS) (download → unpack/init → ready/error). */
   val neuralVoice: NeuralVoiceState = NeuralVoiceState(),
   /** State of the downloadable MeloTTS Korean voice (same pipeline as [neuralVoice]). */
