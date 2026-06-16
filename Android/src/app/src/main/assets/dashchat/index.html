@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>대쉬 챗</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, "Noto Sans KR", system-ui, sans-serif;
+        background: #140A2B;
+        color: #fff;
+        padding: 20px 16px 32px;
+      }
+      h1 { font-size: 22px; margin: 8px 0 2px; }
+      .sub { color: rgba(255,255,255,0.6); font-size: 13px; margin-bottom: 18px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      a.card {
+        display: block; text-decoration: none; color: #fff;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 16px; padding: 16px; min-height: 96px;
+        transition: background 0.15s;
+      }
+      a.card:active { background: rgba(255,255,255,0.16); }
+      .card .emoji { font-size: 26px; }
+      .card .title { font-weight: 700; margin-top: 8px; }
+      .card .desc { color: rgba(255,255,255,0.6); font-size: 12px; margin-top: 4px; }
+      .note {
+        margin-top: 18px; font-size: 12px; color: rgba(255,255,255,0.5);
+        background: rgba(255,255,255,0.05); border-radius: 12px; padding: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>대쉬 챗</h1>
+    <div class="sub">앱의 온디바이스 AI와 대화해요. 주제를 골라 시작하세요.</div>
+    <div class="grid" id="grid"></div>
+    <div class="note" id="note"></div>
+
+    <script src="dashchat.js"></script>
+    <script>
+      var topics = [
+        { id: 'daily',   emoji: '☕', title: '일상 수다',   desc: '소소한 하루 이야기' },
+        { id: 'worry',   emoji: '🌙', title: '고민 상담',   desc: '마음 가볍게 털어놓기' },
+        { id: 'idea',    emoji: '💡', title: '아이디어',     desc: '브레인스토밍 도우미' },
+        { id: 'study',   emoji: '📚', title: '공부 도우미',  desc: '쉽게 설명해 줄게요' },
+      ];
+      var grid = document.getElementById('grid');
+      topics.forEach(function (t) {
+        var a = document.createElement('a');
+        a.className = 'card';
+        a.href = 'chat.html?topic=' + encodeURIComponent(t.id) + '&title=' + encodeURIComponent(t.title);
+        a.innerHTML =
+          '<div class="emoji">' + t.emoji + '</div>' +
+          '<div class="title">' + t.title + '</div>' +
+          '<div class="desc">' + t.desc + '</div>';
+        grid.appendChild(a);
+      });
+      var note = document.getElementById('note');
+      note.textContent = DashChat.isReady()
+        ? 'AI 준비 완료. 카드를 눌러 대화를 시작하세요.'
+        : 'AI 모델이 아직 준비되지 않았어요. 앱 설정에서 모델을 먼저 준비해 주세요.';
+    </script>
+  </body>
+</html>

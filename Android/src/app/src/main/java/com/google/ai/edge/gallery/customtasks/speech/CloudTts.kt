@@ -223,10 +223,10 @@ class CloudTtsService @Inject constructor() {
         apiToken = "2d4bd2df1fdd0f22fdcd16b6cf28df56",
         voices =
           listOf(
-            CloudTtsVoice("21m00Tcm4TlvDq8ikWAM", "Rachel"),
-            CloudTtsVoice("AZnzlk1XvdvUeBnXmlld", "Domi"),
-            CloudTtsVoice("EXAVITQu4vr4xnSDxMaL", "Sarah"),
-            CloudTtsVoice("TxGEqnHWrfWFTfGW9XjX", "Josh"),
+            CloudTtsVoice("PDoCXqBQFGsvfO0hNkEs", "남자(온디)"),
+            //CloudTtsVoice("AZnzlk1XvdvUeBnXmlld", "Domi"),
+            CloudTtsVoice("QPFsEL6IBxlT15xfiD6C", "여자(온디)"),
+            //CloudTtsVoice("TxGEqnHWrfWFTfGW9XjX", "Josh"),
           ),
       ),
       CloudTtsProvider(

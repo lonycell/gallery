@@ -70,6 +70,8 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
+import androidx.navigation.navOptions
 import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskDataForBuiltinTask
@@ -93,6 +95,7 @@ import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
+import com.google.ai.edge.gallery.customtasks.dashchat.DashChatScreen
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -110,6 +113,9 @@ private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
 private const val ROUTE_MODEL_MANAGER = "model_manager"
 private const val ROUTE_NOTIFICATIONS = "notifications"
+private const val ROUTE_DASH_CHAT = "dash_chat"
+/** App deep-link scheme (declared in AndroidManifest.xml). */
+private const val DEEPLINK_SCHEME = "com.google.ai.edge.gallery"
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -205,7 +211,11 @@ fun GalleryNavHost(
     // VoiceAssistantViewModel (and skill/MCP managers), scoped to this nested graph's back stack
     // entry so selections made in settings take effect in the chat immediately.
     navigation(startDestination = ROUTE_MAINPAGE, route = ROUTE_VOICE_GRAPH) {
-      composable(route = ROUTE_MAINPAGE) { entry ->
+      composable(
+        route = ROUTE_MAINPAGE,
+        // Reachable as a deep link (e.g. from the Dash Chat site's "채팅하기" / "내 채팅 보기").
+        deepLinks = listOf(navDeepLink { uriPattern = "$DEEPLINK_SCHEME://mainpage" }),
+      ) { entry ->
         val parentEntry = remember(entry) { navController.getBackStackEntry(ROUTE_VOICE_GRAPH) }
         MainPage(
           modelManagerViewModel = modelManagerViewModel,
@@ -231,6 +241,7 @@ fun GalleryNavHost(
           characterViewModel = hiltViewModel(parentEntry),
           onOpenSubscription = { navController.navigate(ROUTE_SUBSCRIPTION) },
           onOpenHome = { navController.navigate(ROUTE_HOMESCREEN) },
+          onOpenDashChat = { navController.navigate(ROUTE_DASH_CHAT) },
           navigateUp = { navController.navigateUp() },
         )
       }
@@ -238,6 +249,8 @@ fun GalleryNavHost(
       // (and thus its loaded TTS voices) for per-character voice assignment.
       composable(
         route = ROUTE_CHARACTERS,
+        // Reachable as a deep link (e.g. from the Dash Chat site's "캐릭터 만들기").
+        deepLinks = listOf(navDeepLink { uriPattern = "$DEEPLINK_SCHEME://characters" }),
         enterTransition = { slideEnter() },
         exitTransition = { slideExit() },
       ) { entry ->
@@ -297,6 +310,7 @@ fun GalleryNavHost(
             },
             onModelsClicked = { navController.navigate(ROUTE_MODEL_MANAGER) },
             onNotificationsClicked = { navController.navigate(ROUTE_NOTIFICATIONS) },
+            onDashChatClicked = { navController.navigate(ROUTE_DASH_CHAT) },
             gm4 = true,
           )
         }
@@ -520,6 +534,30 @@ fun GalleryNavHost(
       exitTransition = { slideDownExit() },
     ) {
       NotificationsScreen(navigateUp = { navController.navigateUp() })
+    }
+
+    // Dash Chat: download a web build and browse it locally, talking to the app's on-device LLM.
+    composable(
+      route = ROUTE_DASH_CHAT,
+      enterTransition = { slideEnter() },
+      exitTransition = { slideExit() },
+    ) {
+      DashChatScreen(
+        modelManagerViewModel = modelManagerViewModel,
+        navigateUp = { navController.navigateUp() },
+        // Resolve the page's app deep link against the nav graph. Pop back to the always-present
+        // chat root first so we land on the existing screens (and the chat) instead of stacking
+        // duplicates on top of Dash Chat.
+        onDeepLink = { uri ->
+          navController.navigate(
+            uri,
+            navOptions {
+              popUpTo(ROUTE_MAINPAGE) { inclusive = false }
+              launchSingleTop = true
+            },
+          )
+        },
+      )
     }
 
     // Benchmark creation page.

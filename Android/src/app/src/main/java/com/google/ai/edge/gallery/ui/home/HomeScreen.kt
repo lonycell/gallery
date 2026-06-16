@@ -167,6 +167,7 @@ fun HomeScreen(
   enableAnimation: Boolean,
   modifier: Modifier = Modifier,
   gm4: Boolean = false,
+  onDashChatClicked: () -> Unit = {},
 ) {
   val uiState by modelManagerViewModel.uiState.collectAsState()
   var showSettingsDialog by remember { mutableStateOf(false) }
@@ -480,6 +481,7 @@ fun HomeScreen(
                   navigateToTaskScreen = navigateToTaskScreen,
                   gm4 = gm4,
                   grid = grid,
+                  onDashChatClicked = onDashChatClicked,
                 )
 
                 Spacer(modifier = Modifier.height(innerPadding.calculateBottomPadding() + 10.dp))
@@ -831,6 +833,7 @@ private fun TaskList(
   navigateToTaskScreen: (Task) -> Unit,
   gm4: Boolean = false,
   grid: Boolean = false,
+  onDashChatClicked: () -> Unit = {},
 ) {
   // Model list animation:
   //
@@ -853,6 +856,17 @@ private fun TaskList(
     delay(((TASK_CARD_ANIMATION_DURATION + TASK_CARD_ANIMATION_DELAY_OFFSET) * 5).toLong())
     initialAnimationDone = true
   }
+
+  // Link card to the downloadable "Dash Chat" web experience (browses a downloaded site that talks
+  // to the app's on-device LLM).
+  DashChatHomeCard(
+    onClick = onDashChatClicked,
+    modifier =
+      Modifier.padding(horizontal = if (gm4) 24.dp else 20.dp, vertical = 4.dp).graphicsLayer {
+        alpha = progress
+        translationY = (CONTENT_COMPOSABLES_OFFSET_Y.dp * (1 - progress)).toPx()
+      },
+  )
 
   // The highlighted tiles at the top.
   if (gm4) {
@@ -968,6 +982,35 @@ private fun TaskList(
           )
         }
       }
+    }
+  }
+}
+
+/** A full-width gradient link card on the home screen that opens the Dash Chat web experience. */
+@Composable
+private fun DashChatHomeCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
+  Box(
+    modifier =
+      modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(20.dp))
+        .background(Brush.horizontalGradient(listOf(Color(0xFF7C4DFF), Color(0xFFE15BD0))))
+        .clickable { onClick() }
+        .padding(horizontal = 18.dp, vertical = 16.dp)
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Text(text = "🌐", fontSize = 26.sp)
+      Spacer(modifier = Modifier.width(14.dp))
+      Column(modifier = Modifier.weight(1f)) {
+        Text(text = "대쉬 챗", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(
+          text = "웹에서 즐기는 AI 대화 — 사이트를 받아 바로 시작",
+          color = Color.White.copy(alpha = 0.85f),
+          fontSize = 12.sp,
+          lineHeight = 16.sp,
+        )
+      }
+      Text(text = "›", color = Color.White, fontSize = 24.sp)
     }
   }
 }

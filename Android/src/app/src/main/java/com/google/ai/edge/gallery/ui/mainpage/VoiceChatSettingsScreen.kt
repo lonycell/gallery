@@ -83,6 +83,8 @@ import com.google.ai.edge.gallery.customtasks.voiceassistant.VoiceAssistantViewM
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import com.google.ai.edge.gallery.ui.common.humanReadableSize
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
@@ -104,8 +106,10 @@ fun VoiceChatSettingsScreen(
   characterViewModel: CharacterViewModel,
   onOpenSubscription: () -> Unit,
   onOpenHome: () -> Unit,
+  onOpenDashChat: () -> Unit,
   navigateUp: () -> Unit,
 ) {
+  val context = LocalContext.current
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
   val uiState by viewModel.uiState.collectAsState()
   val charState by characterViewModel.state.collectAsState()
@@ -429,6 +433,23 @@ fun VoiceChatSettingsScreen(
               )
             }
           }
+        }
+      }
+
+      // --- Dash Chat: re-download the web site cleanly (clears site + zip + WebView cache) ---
+      SettingsSection(title = "대쉬 챗", subtitle = "웹 사이트를 지우고 최신 버전으로 새로 받기") {
+        Button(
+          onClick = {
+            // Wipe the extracted site, the cached zip, and the WebView cache / storage so the same
+            // URL fetches a fresh version next time. Then open Dash Chat, which re-downloads it.
+            com.google.ai.edge.gallery.customtasks.dashchat.DashChatSite.clearAll(context)
+            com.google.ai.edge.gallery.customtasks.dashchat.clearDashChatWebCache(context)
+            Toast.makeText(context, "대쉬 챗 사이트를 지웠어요. 새로 받습니다.", Toast.LENGTH_SHORT).show()
+            onOpenDashChat()
+          },
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text("사이트 지우고 새로 받기")
         }
       }
 
