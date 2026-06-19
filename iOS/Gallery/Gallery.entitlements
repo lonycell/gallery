@@ -2,8 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Associated domains / push could be added here to mirror Firebase Messaging (FCM). -->
-	<key>aps-environment</key>
-	<string>development</string>
+	<!-- Push (aps-environment) intentionally omitted: free/Personal Apple
+	     developer teams cannot create a profile with the Push Notifications
+	     capability. Re-add <key>aps-environment</key> when building under a
+	     paid Apple Developer Program team that needs FCM/APNs. -->
 </dict>
 </plist>
