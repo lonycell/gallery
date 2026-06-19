@@ -44,7 +44,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.google.aiedge.gallery</string>
+			<string>kr.co.utopsoft.aiedge.gallery</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.google.ai.edge.gallery</string>

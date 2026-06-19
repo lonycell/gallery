@@ -19,7 +19,7 @@ layout — re-expressed with SwiftUI + Swift instead of Jetpack Compose + Kotlin
 - Open `Gallery.xcodeproj` and run the **찐친 Ai** scheme, **or**
 - `cd iOS && xcodegen generate` (uses `project.yml`) then open the generated project.
 
-App id `com.google.aiedge.gallery`, version 1.0.15 (33) — matching the Android
+App id `kr.co.utopsoft.aiedge.gallery`, version 1.0.15 (33) — matching the Android
 `applicationId` / `versionName` / `versionCode`.
 
 ## Project layout (mirrors the Kotlin packages)

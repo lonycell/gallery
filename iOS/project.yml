@@ -1,9 +1,10 @@
 # XcodeGen spec (alternative to the checked-in Gallery.xcodeproj).
 # Run `xcodegen generate` in this directory to regenerate the project from the
-# source tree. Mirrors the Android Gradle module `app` (com.google.aiedge.gallery).
+# source tree. Mirrors the Android Gradle module `app` (com.google.aiedge.gallery),
+# repackaged under the kr.co.utopsoft.aiedge.gallery identity.
 name: Gallery
 options:
-  bundleIdPrefix: com.google.aiedge
+  bundleIdPrefix: kr.co.utopsoft.aiedge
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -36,7 +37,7 @@ targets:
         type: folder
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.google.aiedge.gallery
+        PRODUCT_BUNDLE_IDENTIFIER: kr.co.utopsoft.aiedge.gallery
         PRODUCT_NAME: Gallery
         INFOPLIST_FILE: Gallery/Info.plist
         CODE_SIGN_ENTITLEMENTS: Gallery/Gallery.entitlements
