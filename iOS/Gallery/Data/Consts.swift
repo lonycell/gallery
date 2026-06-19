@@ -44,7 +44,7 @@ let MAX_RECOMMENDED_SKILL_COUNT = 15
 // Max number of audio clips in an "ask audio" session.
 let MAX_AUDIO_CLIP_COUNT = 1
 // Max audio clip duration in seconds.
-let MAX_AUDIO_CLIP_DURATION_SEC = 30
+let MAX_AUDIO_CLIP_DURATION_SEC: Double = 30
 // Audio-recording related consts.
 let SAMPLE_RATE = 16000
 

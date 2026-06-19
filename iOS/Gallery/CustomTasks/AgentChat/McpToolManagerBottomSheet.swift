@@ -89,9 +89,9 @@ struct McpToolManagerBottomSheet: View {
             }
 
             HStack(spacing: 8) {
-                SmallFilledTonalButton(label: Str.view, systemImage: "eye", action: { toolToView = tool })
+                SmallFilledTonalButton(onClick: { toolToView = tool }, label: Str.view, systemImage: "eye")
                 if tool.alwaysAllow {
-                    SmallOutlinedButton(label: Str.mcpToolRevokePermission, systemImage: "xmark.circle", action: { toolToRevoke = tool })
+                    SmallOutlinedButton(onClick: { toolToRevoke = tool }, label: Str.mcpToolRevokePermission, systemImage: "xmark.circle")
                 }
             }
             .padding(.top, 8)
@@ -110,36 +110,3 @@ struct McpToolManagerBottomSheet: View {
     }
 }
 
-// MARK: - Inline helpers (avoid duplication in real project — factor to shared file)
-
-private struct SmallFilledTonalButton: View {
-    let label: String; let systemImage: String; let action: () -> Void
-    @Environment(\.galleryColors) var colors
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) { Image(systemName: systemImage).font(.system(size: 14)); Text(label).font(AppTypography.labelMedium) }.padding(.horizontal, 10).padding(.vertical, 6)
-        }.buttonStyle(.borderedProminent).tint(colors.secondaryContainer).foregroundColor(colors.onSecondaryContainer).controlSize(.small)
-    }
-}
-private struct SmallOutlinedButton: View {
-    let label: String; let systemImage: String; let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) { Image(systemName: systemImage).font(.system(size: 14)); Text(label).font(AppTypography.labelMedium) }.padding(.horizontal, 10).padding(.vertical, 6)
-        }.buttonStyle(.bordered).controlSize(.small)
-    }
-}
-
-private extension Str {
-    static let manageTools = "Manage tools"
-    static let mcpToolRevokePermission = "Revoke tool call permission"
-    static let mcpToolRevokePermissionTitle = "Revoke permission?"
-    static let mcpToolRevokePermissionContent = "Are you sure you want to revoke permission to automatically call this tool?"
-    static let mcpToolRevoke = "Revoke"
-    static let close = "Close"
-    static let view = "View"
-    static let turnOnAll = "Turn on all"
-    static let turnOffAll = "Turn off all"
-    static let cancel = "Cancel"
-    static func mcpToolsCount(_ n: Int) -> String { "\(n) tool\(n == 1 ? "" : "s")" }
-}

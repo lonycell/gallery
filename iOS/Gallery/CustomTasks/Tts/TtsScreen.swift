@@ -14,6 +14,7 @@ struct TtsScreen: View {
   @State private var text: String = "Hello! This is on-device text to speech."
   @State private var sid: Int = 0
 
+  @ViewBuilder
   var body: some View {
     let mmState = modelManagerViewModel.uiState
     let model = mmState.selectedModel
@@ -26,22 +27,13 @@ struct TtsScreen: View {
         Spacer()
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      return
-    }
+    } else if let instance = model.instance as? TtsModelInstance {
+      let numSpeakers = instance.numSpeakers
+      // Clamp sid when switching models.
+      let clampedSid = min(sid, max(0, numSpeakers - 1))
+      let speed = model.getFloatConfigValue(TTS_CONFIG_KEY_SPEED, default: 1.0)
 
-    guard let instance = model.instance as? TtsModelInstance else {
-      Text("모델 초기화 중 오류가 발생했습니다.")
-        .foregroundStyle(.red)
-        .padding()
-      return
-    }
-
-    let numSpeakers = instance.numSpeakers
-    // Clamp sid when switching models.
-    let clampedSid = min(sid, max(0, numSpeakers - 1))
-    let speed = model.getFloatConfigValue(TTS_CONFIG_KEY_SPEED, default: 1.0)
-
-    VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: 12) {
       // Text input
       TextEditor(text: $text)
         .frame(maxWidth: .infinity)
@@ -109,8 +101,13 @@ struct TtsScreen: View {
         .buttonStyle(.bordered)
       }
     }
-    .padding(16)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .onChange(of: model.name) { _ in sid = 0 }
+      .padding(16)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+      .onChange(of: model.name) { _ in sid = 0 }
+    } else {
+      Text("모델 초기화 중 오류가 발생했습니다.")
+        .foregroundStyle(.red)
+        .padding()
+    }
   }
 }

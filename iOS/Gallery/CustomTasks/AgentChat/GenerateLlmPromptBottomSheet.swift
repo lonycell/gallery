@@ -116,12 +116,3 @@ private struct LabeledTextField: View {
         }
     }
 }
-
-private extension Str {
-    static let generateLlmPromptTitle = "Generate LLM Prompt"
-    static let describeRequirements = "Describe requirements"
-    static let describeInputData = "Describe input data"
-    static let describeInputDataSupportText = "Describe the fields the JS function receives as input."
-    static let describeOutputData = "Describe output data"
-    static let generateAndCopy = "Generate and copy"
-}

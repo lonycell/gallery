@@ -30,7 +30,7 @@ typealias Contents = String          // system instruction text (litertlm.Conten
 typealias ToolProvider = AnyObject   // litertlm.ToolProvider (function-calling tools)
 
 /// Base interface for all LLM runtimes. Mirrors `interface LlmModelHelper`.
-protocol LlmModelHelper {
+protocol LlmModelHelper: AnyObject {
   func initialize(
     model: Model,
     taskId: String,

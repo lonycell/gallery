@@ -169,10 +169,11 @@ enum IntentHandler {
 
         let notification = ScheduledNotification(
             id: UUID().uuidString, title: params.title, message: params.message,
-            hour: params.hour, minute: params.minute,
             channelId: "agent_skill_tasks_channel", channelName: "Agent Skill Task",
-            deeplink: deeplink, year: params.year ?? 0, month: params.month ?? 0,
-            day: params.day ?? 0, repeatDaily: params.repeat_daily ?? false)
+            hour: Int32(params.hour), minute: Int32(params.minute),
+            year: params.year.map { Int32($0) }, month: params.month.map { Int32($0) },
+            day: params.day.map { Int32($0) }, repeatDaily: params.repeat_daily ?? false,
+            deeplink: deeplink)
 
         // NOTE: NotificationScheduleManager is injected from AppContainer.
         // IntentHandler cannot access it directly without DI; we store a reference

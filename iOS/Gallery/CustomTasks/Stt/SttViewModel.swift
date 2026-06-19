@@ -26,7 +26,7 @@ final class SttViewModel: ObservableObject {
   @Published var uiState = SttUiState()
 
   private let recorder = AudioRecorder(sampleRate: SPEECH_SAMPLE_RATE)
-  private var transcribeTask: Task<Void, Never>?
+  private var transcribeTask: _Concurrency.Task<Void, Never>?
 
   // MARK: - Public API
 
@@ -51,10 +51,10 @@ final class SttViewModel: ObservableObject {
 
     uiState.isTranscribing = true
     transcribeTask?.cancel()
-    transcribeTask = Task { [weak self] in
+    transcribeTask = _Concurrency.Task { [weak self] in
       guard let self else { return }
       do {
-        let text = await Task.detached(priority: .userInitiated) {
+        let text = await _Concurrency.Task.detached(priority: .userInitiated) {
           await instance.engine.transcribe(samples: samples, sampleRate: SPEECH_SAMPLE_RATE)
         }.value
         await MainActor.run {

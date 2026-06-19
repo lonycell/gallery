@@ -22,13 +22,13 @@ let SpeechCategory = CategoryInfo(id: "speech", label: "Speech")
 /// Playback runs off the main thread so the caller is never blocked.
 final class AudioPlayer {
   private var player: AVAudioPlayer?
-  private var playerTask: Task<Void, Never>?
+  private var playerTask: _Concurrency.Task<Void, Never>?
 
   /// Fire-and-forget playback. If something is already playing it is stopped first.
   func play(samples: [Float], sampleRate: Int) {
     stop()
     guard !samples.isEmpty else { return }
-    playerTask = Task.detached { [weak self] in
+    playerTask = _Concurrency.Task.detached { [weak self] in
       await self?.playInternal(samples: samples, sampleRate: sampleRate)
     }
   }
@@ -51,8 +51,8 @@ final class AudioPlayer {
       p.play()
       // Poll until the player finishes or the Task is cancelled.
       while p.isPlaying {
-        if Task.isCancelled { p.stop(); break }
-        try? await Task.sleep(nanoseconds: 20_000_000)  // 20 ms
+        if _Concurrency.Task.isCancelled { p.stop(); break }
+        try? await _Concurrency.Task.sleep(nanoseconds: 20_000_000)  // 20 ms
       }
     } catch {
       // Non-fatal; the UI already shows an error if synthesis itself failed.

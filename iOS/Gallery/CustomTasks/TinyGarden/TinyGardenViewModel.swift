@@ -106,7 +106,7 @@ final class TinyGardenViewModel: ObservableObject {
             model: model,
             input: instructionText,
             resultListener: { [weak self] partial, done, _ in
-                Task { @MainActor [weak self] in
+                _Concurrency.Task { @MainActor [weak self] in
                     if done {
                         self?.setProcessing(false)
                         onDone(partial)
@@ -115,7 +115,7 @@ final class TinyGardenViewModel: ObservableObject {
             },
             cleanUpListener: {},
             onError: { [weak self] error in
-                Task { @MainActor [weak self] in
+                _Concurrency.Task { @MainActor [weak self] in
                     self?.setProcessing(false)
                     onError(error)
                 }
@@ -131,7 +131,7 @@ final class TinyGardenViewModel: ObservableObject {
         onError: @escaping (String) -> Void
     ) {
         resetNumTurns()
-        Task { @MainActor in
+        _Concurrency.Task { @MainActor in
             setResettingEngine(true)
             AppContainer.sharedLlmHelper?.cleanUp(model: model) { [weak self] in
                 AppContainer.sharedLlmHelper?.initialize(
@@ -143,7 +143,7 @@ final class TinyGardenViewModel: ObservableObject {
                     tools: tools,
                     enableConversationConstrainedDecoding: true,
                     onDone: { [weak self] error in
-                        Task { @MainActor [weak self] in
+                        _Concurrency.Task { @MainActor [weak self] in
                             self?.setResettingEngine(false)
                             if !error.isEmpty { onError(error) }
                             self?.addMessage(TinyGardenMessage(
@@ -166,7 +166,7 @@ final class TinyGardenViewModel: ObservableObject {
         prevAction: String
     ) {
         resetNumTurns()
-        Task { @MainActor in
+        _Concurrency.Task { @MainActor in
             isResettingConversation = true
             let sysPrompt = getTinyGardenSystemPrompt(
                 prevSeed: prevSeed, prevPlots: prevPlots, prevAction: prevAction)

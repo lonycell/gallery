@@ -64,7 +64,7 @@ final class Coordinator: NSObject, WKScriptMessageHandler, WKURLSchemeHandler {
     weak var webView: WKWebView?
 
     private var resultContinuation: CheckedContinuation<String, Never>?
-    private var pageLoadContinuation: CheckedContinuation<Void, Never>?
+    private var pageLoadContinuation: CheckedContinuation<Void, Error>?
     private var navigationDelegate: BridgeNavigationDelegate?
 
     init(agentTools: AgentTools, skillManagerViewModel: SkillManagerViewModel,
@@ -83,7 +83,7 @@ final class Coordinator: NSObject, WKScriptMessageHandler, WKURLSchemeHandler {
     }
 
     func startActionLoop() {
-        Task { @MainActor in
+        _Concurrency.Task { @MainActor in
             for await action in agentTools.actionStream {
                 await handleAction(action)
             }
@@ -133,8 +133,8 @@ final class Coordinator: NSObject, WKScriptMessageHandler, WKURLSchemeHandler {
         }
 
         // Set up timeout
-        Task {
-            try? await Task.sleep(nanoseconds: 60_000_000_000) // 60 seconds
+        _Concurrency.Task {
+            try? await _Concurrency.Task.sleep(nanoseconds: 60_000_000_000) // 60 seconds
             if !action.result.isCompleted() {
                 action.result.complete("{\"error\": \"Skill execution timed out. Please check network connection.\"}")
             }
@@ -166,7 +166,7 @@ final class Coordinator: NSObject, WKScriptMessageHandler, WKURLSchemeHandler {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             resultContinuation = nil // will be set via WKScriptMessageHandler
             // Temporary continuation to wait for the result
-            Task { @MainActor in
+            _Concurrency.Task { @MainActor in
                 webView.evaluateJavaScript(script) { _, _ in }
             }
             cont.resume()

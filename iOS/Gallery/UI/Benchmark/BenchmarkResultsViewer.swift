@@ -97,7 +97,7 @@ struct BenchmarkResultsViewer: View {
       // Show comparison help on first time seeing multiple results
       if filteredResults.count > 1 &&
          !viewModel.dataStoreRepository.getHasSeenBenchmarkComparisonHelp() {
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        try? await _Concurrency.Task.sleep(nanoseconds: 500_000_000)
         showComparisonHelp = true
         viewModel.dataStoreRepository.setHasSeenBenchmarkComparisonHelp(true)
       }

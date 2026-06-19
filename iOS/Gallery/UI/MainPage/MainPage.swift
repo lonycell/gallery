@@ -249,7 +249,7 @@ private struct VoiceChatContent: View {
         // Greeting on first enter from "start chat" button.
         .task(id: "\(modelReady)|\(charState.selectedId)") {
             guard modelReady, characterViewModel.isGreetingPending(characterId: charState.selectedId) else { return }
-            try? await Task.sleep(nanoseconds: 250_000_000) // let history load
+            try? await _Concurrency.Task.sleep(nanoseconds: 250_000_000) // let history load
             characterViewModel.clearGreeting()
             if uiState.messages.isEmpty { targetModel.map { viewModel.greet($0) } }
         }
@@ -825,7 +825,7 @@ private struct CallButton: View {
 /// NOTE: Replace with a real McpToolCallPermissionDialog from the AgentChat module.
 private struct McpPermissionDialog: View {
     let request: McpToolCallPermissionRequest
-    let onResult: (PermissionResult) -> Void
+    let onResult: (VAPermissionResult) -> Void
 
     var body: some View {
         VStack(spacing: 16) {

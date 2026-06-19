@@ -109,7 +109,7 @@ final class AgentChatTask: CustomTask {
         task = Task(
             id: BuiltInTaskId.LLM_AGENT_CHAT,
             label: "Agent Skills",
-            category: CategoryInfo(id: "llm", title: Str.categoryLlm),
+            category: CategoryInfo(id: "llm", label: Str.categoryLlm),
             icon: .system("cpu"),
             iconVectorAssetName: "agent",
             description: "Chat with on-device large language models with skills and tools",
@@ -132,14 +132,14 @@ final class AgentChatTask: CustomTask {
         // NOTE: The real initialization (loading skills, MCP servers, then calling LlmChatModelHelper.initialize
         // with tool=[agentTools]) happens on the AgentChatScreen side where we have access to the view models.
         // Here we just forward to LlmModelHelper.
-        Task {
+        _Concurrency.Task {
             // Stub: actual LiteRT-LM init not implemented on iOS — see LlmModelHelper.swift.
             onDone("")
         }
     }
 
     func cleanUpModelFn(model: Model, onDone: @escaping () -> Void) {
-        Task { onDone() }
+        _Concurrency.Task { onDone() }
     }
 
     /// The DataStoreRepository must be injected by the caller (GalleryNavGraph / integrator)

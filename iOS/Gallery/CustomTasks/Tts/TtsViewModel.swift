@@ -26,21 +26,22 @@ final class TtsViewModel: ObservableObject {
   /// Fallback synthesizer used when the engine's `generate()` returns nil
   /// (i.e. on-device model not yet available; system TTS path).
   private let fallbackSynth = AVSpeechSynthesizer()
-  private var speakTask: Task<Void, Never>?
+  private var speakTask: _Concurrency.Task<Void, Never>?
 
   func speak(instance: TtsModelInstance, text: String, speed: Float, sid: Int = 0) {
     guard !text.isBlankStr else { return }
     let safeSid = max(0, min(sid, max(0, instance.numSpeakers - 1)))
 
     speakTask?.cancel()
-    speakTask = Task { [weak self] in
+    speakTask = _Concurrency.Task { [weak self] in
       guard let self else { return }
       await MainActor.run { self.uiState = TtsUiState(isSynthesizing: true) }
 
       do {
-        if let (samples, sampleRate) = await Task.detached(priority: .userInitiated) {
+        let generated = await _Concurrency.Task.detached(priority: .userInitiated) {
           instance.engine.generate(text: text, sid: safeSid, speed: speed)
-        }.value {
+        }.value
+        if let (samples, sampleRate) = generated {
           // On-device model produced PCM — play via AudioPlayer.
           await self.player.playToCompletion(samples: samples, sampleRate: sampleRate)
         } else {
@@ -80,7 +81,7 @@ final class TtsViewModel: ObservableObject {
     // Rough wait — system TTS has no async completion API.
     // A real on-device engine replaces this path entirely.
     let estimated = max(1.0, Double(text.count) / 10.0 / Double(speed))
-    try? await Task.sleep(nanoseconds: UInt64(estimated * 1_000_000_000))
+    try? await _Concurrency.Task.sleep(nanoseconds: UInt64(estimated * 1_000_000_000))
   }
 }
 

@@ -93,10 +93,10 @@ struct LlmChatScreen: View {
       onGenerateResponseDone: onGenerateResponseDone,
       onResetSessionClickedOverride: onResetSessionClickedOverride,
       composableBelowMessageList: composableBelowMessageList,
+      emptyStateView: emptyStateView,
       allowEditingSystemPrompt: allowEditingSystemPrompt,
       curSystemPrompt: curSystemPrompt,
       onSystemPromptChanged: onSystemPromptChanged,
-      emptyStateView: emptyStateView,
       sendMessageTrigger: sendMessageTrigger,
       showImagePicker: showImagePicker,
       showAudioPicker: showAudioPicker,
@@ -138,9 +138,6 @@ struct LlmAskImageScreen: View {
       modelManagerViewModel: modelManagerViewModel,
       taskId: BuiltInTaskId.LLM_ASK_IMAGE,
       navigateUp: navigateUp,
-      allowEditingSystemPrompt: allowEditingSystemPrompt,
-      curSystemPrompt: curSystemPrompt,
-      onSystemPromptChanged: onSystemPromptChanged,
       emptyStateView: { _ in
         AnyView(
           VStack(spacing: 12) {
@@ -158,6 +155,9 @@ struct LlmAskImageScreen: View {
           .padding(.bottom, 48)
         )
       },
+      allowEditingSystemPrompt: allowEditingSystemPrompt,
+      curSystemPrompt: curSystemPrompt,
+      onSystemPromptChanged: onSystemPromptChanged,
       showImagePicker: true,
       showAudioPicker: false)
   }
@@ -196,9 +196,6 @@ struct LlmAskAudioScreen: View {
       modelManagerViewModel: modelManagerViewModel,
       taskId: BuiltInTaskId.LLM_ASK_AUDIO,
       navigateUp: navigateUp,
-      allowEditingSystemPrompt: allowEditingSystemPrompt,
-      curSystemPrompt: curSystemPrompt,
-      onSystemPromptChanged: onSystemPromptChanged,
       emptyStateView: { _ in
         AnyView(
           VStack(spacing: 12) {
@@ -216,6 +213,9 @@ struct LlmAskAudioScreen: View {
           .padding(.bottom, 48)
         )
       },
+      allowEditingSystemPrompt: allowEditingSystemPrompt,
+      curSystemPrompt: curSystemPrompt,
+      onSystemPromptChanged: onSystemPromptChanged,
       showImagePicker: false,
       showAudioPicker: true)
   }

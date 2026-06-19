@@ -173,7 +173,7 @@ final class CloudTtsService {
     var dataLen = 0
 
     while pos + 8 <= data.count {
-      let id = String(data[pos..<(pos+4)].map { Character(UnicodeScalar($0)) })
+      let id = String(data[pos..<(pos+4)].map { Swift.Character(UnicodeScalar($0)) })
       let size = data.withUnsafeBytes { raw -> Int32 in
         raw.load(fromByteOffset: pos + 4, as: Int32.self).littleEndian
       }

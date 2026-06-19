@@ -142,7 +142,7 @@ struct LlmSingleTurnScreen: View {
     navigatingUp = true
     navigateUp()
     // Clean up all models on nav-up (mirrors Android scope.launch cleanup).
-    Task {
+    _Concurrency.Task {
       for model in task.models {
         modelManagerViewModel.cleanupModel(task: task, model: model)
       }

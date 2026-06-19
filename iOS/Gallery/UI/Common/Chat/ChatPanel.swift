@@ -175,17 +175,17 @@ struct ChatPanel: View {
               )
             ])
           },
-          showSkillsPicker: task.id == BuiltInTaskId.LLM_AGENT_CHAT,
-          showMcpPicker: task.id == BuiltInTaskId.LLM_AGENT_CHAT,
-          showImagePicker: selectedModel.llmSupportImage && showImagePicker,
-          showAudioPicker: selectedModel.llmSupportAudio && showAudioPicker,
-          showStopButtonWhenInProgress: showStopButtonInInputWhenInProgress,
           onImageLimitExceeded: {
             withAnimation { showImageLimitBanner = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
               withAnimation { showImageLimitBanner = false }
             }
-          }
+          },
+          showSkillsPicker: task.id == BuiltInTaskId.LLM_AGENT_CHAT,
+          showMcpPicker: task.id == BuiltInTaskId.LLM_AGENT_CHAT,
+          showImagePicker: selectedModel.llmSupportImage && showImagePicker,
+          showAudioPicker: selectedModel.llmSupportAudio && showAudioPicker,
+          showStopButtonWhenInProgress: showStopButtonInInputWhenInProgress
         )
       }
     }

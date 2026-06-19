@@ -30,7 +30,7 @@ final class AgentTools: ObservableObject {
     var resultImageToShow: CallJsSkillResultImage?
     var resultWebviewToShow: CallJsSkillResultWebview?
 
-    init() {
+    nonisolated init() {
         var cont: AsyncStream<AgentAction>.Continuation!
         actionStream = AsyncStream { cont = $0 }
         actionContinuation = cont
@@ -112,9 +112,9 @@ final class AgentTools: ObservableObject {
 
             if isError {
                 sendAgentAction(SkillProgressAgentAction(
-                    label: "Failed to call MCP tool \"\(toolName)\"",
+                    label: "Failed to call MCP tool \"\(toolName)\"", inProgress: false,
                     addItemTitle: "Call MCP tool \"\(toolName)\" failed",
-                    addItemDescription: text, inProgress: false))
+                    addItemDescription: text))
                 return ["error": text, "status": "failed"]
             } else {
                 sendAgentAction(SkillProgressAgentAction(
@@ -196,7 +196,7 @@ final class AgentTools: ObservableObject {
 
     /// Runs a native intent/action. Mirrors `@Tool fun runIntent(...)`.
     func runIntent(intent: String, parameters: String) async -> [String: String] {
-        guard IntentHandler.from(intent) != nil else {
+        guard IntentAction.from(intent) != nil else {
             let skills = skillManagerViewModel.getSelectedSkills()
             let isSkill = skills.contains { $0.name == intent.trimmingCharacters(in: .whitespaces) }
             let error = isSkill ? "Intent not found. Try to run it as a skill" : "Tool not found"

@@ -41,8 +41,8 @@ struct BufferedFadingMarkdownText: View {
     .onChange(of: inProgress) { wasInProgress in
       // When inProgress flips false, hide overlay after 2x fade interval
       if !inProgress {
-        Task {
-          try? await Task.sleep(nanoseconds: UInt64(FADE_INTERVAL_MS * 2 * 1_000_000))
+        _Concurrency.Task {
+          try? await _Concurrency.Task.sleep(nanoseconds: UInt64(FADE_INTERVAL_MS * 2 * 1_000_000))
           showOverlay = false
         }
       }
@@ -62,10 +62,10 @@ struct BufferedFadingMarkdownText: View {
       alpha2 = 1
     }
     // Wait for animation
-    try? await Task.sleep(nanoseconds: UInt64(FADE_INTERVAL_MS * 1_000_000))
+    try? await _Concurrency.Task.sleep(nanoseconds: UInt64(FADE_INTERVAL_MS * 1_000_000))
     text1 = newText
     // One frame pause then hide overlay
-    try? await Task.sleep(nanoseconds: 16_666_667)
+    try? await _Concurrency.Task.sleep(nanoseconds: 16_666_667)
     alpha2 = 0
   }
 }

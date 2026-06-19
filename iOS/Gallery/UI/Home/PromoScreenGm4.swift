@@ -66,7 +66,7 @@ struct PromoScreenGm4: View {
       .frame(maxWidth: UIScreen.main.bounds.width * 0.6)
     }
     .task {
-      try? await Task.sleep(nanoseconds: UInt64(DISMISS_DELAY_SECONDS * 1_000_000_000))
+      try? await _Concurrency.Task.sleep(nanoseconds: UInt64(DISMISS_DELAY_SECONDS * 1_000_000_000))
       onDismiss()
     }
   }

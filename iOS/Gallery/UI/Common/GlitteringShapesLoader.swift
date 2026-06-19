@@ -51,7 +51,7 @@ struct GlitteringShapesLoader: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .task {
-      while !Task.isCancelled {
+      while !_Concurrency.Task.isCancelled {
         let iconColors = customColors.taskIconColors
         var newShapes: [GlitterShape] = []
         for _ in 0..<BATCH_SIZE {
@@ -69,7 +69,7 @@ struct GlitteringShapesLoader: View {
         let now = Date()
         let alive = shapes.filter { now.timeIntervalSince($0.addedAt) < PARTICLE_ANIMATION_DURATION * 2 + PARTICLE_ALIVE_S + 0.1 }
         shapes = newShapes + alive
-        try? await Task.sleep(nanoseconds: UInt64(BATCH_INTERVAL_S * 1_000_000_000))
+        try? await _Concurrency.Task.sleep(nanoseconds: UInt64(BATCH_INTERVAL_S * 1_000_000_000))
       }
     }
   }

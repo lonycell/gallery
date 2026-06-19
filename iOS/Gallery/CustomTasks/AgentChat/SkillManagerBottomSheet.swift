@@ -84,7 +84,7 @@ struct SkillManagerBottomSheet: View {
         .onChange(of: uiState.skills.filter({ $0.skill.selected }).count) { count in
             if count > MAX_RECOMMENDED_SKILL_COUNT {
                 showSkillLimitBanner = true
-                Task { try? await Task.sleep(nanoseconds: 3_000_000_000); showSkillLimitBanner = false }
+                _Concurrency.Task { try? await _Concurrency.Task.sleep(nanoseconds: 3_000_000_000); showSkillLimitBanner = false }
             }
         }
         .onChange(of: uiState.loading) { loading in
@@ -337,12 +337,12 @@ struct SkillItemRow: View {
 
                 if !inMultiSelectMode {
                     HStack(spacing: 8) {
-                        SmallFilledTonalButton(label: Str.view, systemImage: "eye", action: onViewClick)
+                        SmallFilledTonalButton(onClick: onViewClick, label: Str.view, systemImage: "eye")
                         if skill.requireSecret {
-                            SmallFilledTonalButton(label: Str.secret, systemImage: "key", action: onSecretClick)
+                            SmallFilledTonalButton(onClick: onSecretClick, label: Str.secret, systemImage: "key")
                         }
                         if isCustom {
-                            SmallOutlinedButton(label: Str.delete, systemImage: "trash", action: onDeleteClick)
+                            SmallOutlinedButton(onClick: onDeleteClick, label: Str.delete, systemImage: "trash")
                         }
                     }
                     .padding(.top, 2)
@@ -458,49 +458,21 @@ extension SkillState: Equatable {
     static func == (lhs: SkillState, rhs: SkillState) -> Bool { lhs.skill.name == rhs.skill.name }
 }
 
-// MARK: - SmallFilledTonalButton / SmallOutlinedButton (inline minimal versions)
-
-private struct SmallFilledTonalButton: View {
-    let label: String; let systemImage: String; let action: () -> Void
+// MARK: - SearchBar (file-local; mirrors the inline helpers in the other sheets)
+private struct SearchBar: View {
+    @Binding var text: String
+    let placeholder: String
     @Environment(\.galleryColors) var colors
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage).font(.system(size: 14))
-                Text(label).font(AppTypography.labelMedium)
+        HStack {
+            Image(systemName: "magnifyingglass").foregroundColor(colors.onSurfaceVariant)
+            TextField(placeholder, text: $text).autocorrectionDisabled().textInputAutocapitalization(.never)
+            if !text.isEmpty {
+                Button(action: { text = "" }) { Image(systemName: "xmark.circle.fill").foregroundColor(colors.onSurfaceVariant) }
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent).tint(colors.secondaryContainer).foregroundColor(colors.onSecondaryContainer)
-        .controlSize(.small)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(colors.surfaceContainerHigh).clipShape(Capsule())
     }
 }
 
-private struct SmallOutlinedButton: View {
-    let label: String; let systemImage: String; let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage).font(.system(size: 14))
-                Text(label).font(AppTypography.labelMedium)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-        }
-        .buttonStyle(.bordered).controlSize(.small)
-    }
-}
-
-// MARK: - Strings not yet in Strings.swift
-
-private extension Str {
-    static let introducing = "Introducing"
-    static let editSkill = "Edit secret"
-    static let secret = "Secret"
-    static let turnOnAll = "Turn on all"
-    static let turnOffAll = "Turn off all"
-    static let ok = "OK"
-    static let done = "Done"
-    static let view = "View"
-    static let skillsCount: (Int) -> String = { "\($0) skill\($0 == 1 ? "" : "s")" }
-    static func selectedCustomSkillsCount(_ n: Int) -> String { "\(n) selected" }
-}

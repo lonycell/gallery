@@ -85,7 +85,7 @@ struct SkillTesterBottomSheet: View {
     private func runSkill() {
         running = true
         result = ""; error = ""; resultImage = nil; resultWebviewURL = nil
-        Task {
+        _Concurrency.Task {
             guard let url = agentTools.skillManagerViewModel.getJsSkillUrl(skillName: skill.name, scriptName: DEFAULT_SCRIPT_NAME) else {
                 await MainActor.run { error = "JS skill URL not specified"; running = false }
                 return

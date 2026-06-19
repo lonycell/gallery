@@ -43,7 +43,7 @@ final class LlmSingleTurnViewModel: ObservableObject {
 
   func generateResponse(task: Task, model: Model, input: String) {
     let helper = llmModelHelper
-    Task { [weak self] in
+    _Concurrency.Task { [weak self] in
       guard let self else { return }
       self.setInProgress(true)
       self.setPreparing(true)
@@ -51,14 +51,14 @@ final class LlmSingleTurnViewModel: ObservableObject {
       // Wait for model instance.
       var waited = 0
       while model.instance == nil {
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        try? await _Concurrency.Task.sleep(nanoseconds: 100_000_000)
         waited += 1
         if waited > 600 { break }
       }
 
       // Reset conversation before each single-turn call (mirrors Android).
       helper.resetConversation(model: model)
-      try? await Task.sleep(nanoseconds: 500_000_000) // 500 ms
+      try? await _Concurrency.Task.sleep(nanoseconds: 500_000_000) // 500 ms
 
       var firstRun = true
       var response = ""
@@ -69,7 +69,7 @@ final class LlmSingleTurnViewModel: ObservableObject {
         input: input,
         resultListener: { [weak self] partialResult, done, _ in
           guard let self else { return }
-          Task { @MainActor [weak self] in
+          _Concurrency.Task { @MainActor [weak self] in
             guard let self else { return }
             if firstRun {
               firstRun = false
@@ -81,13 +81,13 @@ final class LlmSingleTurnViewModel: ObservableObject {
           }
         },
         cleanUpListener: { [weak self] in
-          Task { @MainActor [weak self] in
+          _Concurrency.Task { @MainActor [weak self] in
             self?.setPreparing(false)
             self?.setInProgress(false)
           }
         },
         onError: { [weak self] _ in
-          Task { @MainActor [weak self] in
+          _Concurrency.Task { @MainActor [weak self] in
             self?.setPreparing(false)
             self?.setInProgress(false)
           }

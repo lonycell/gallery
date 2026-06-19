@@ -117,7 +117,7 @@ private let GENERATION_STALL_TIMEOUT_NS: UInt64 = 45_000_000_000
 private let CALL_SILENT_COOLDOWN_NS: UInt64     = 1_100_000_000
 private let CALL_SILENT_BACKOFF_CAP             = 3
 private let STREAMING_SOFT_FLUSH_CHARS          = 60
-private let SENTENCE_TERMINATORS: [Character]   = [".", "!", "?", "…", "。", "！", "？", "\n"]
+private let SENTENCE_TERMINATORS: [Swift.Character]   = [".", "!", "?", "…", "。", "！", "？", "\n"]
 
 private let GREETING_PROMPT =
     "(사용자가 방금 너와 대화를 시작했어. 너의 성격과 말투를 살려서, 짧고 자연스럽게 먼저 인사하며 " +
@@ -162,7 +162,7 @@ final class VoiceAssistantViewModel: ObservableObject {
 
     // Streaming TTS (sentence-by-sentence) state.
     private var speakChannel: AsyncStream<String>.Continuation?
-    private var speakConsumerTask: Task<Void, Never>?
+    private var speakConsumerTask: _Concurrency.Task<Void, Never>?
     private var spokenChars = 0
     private var streamingTurnActive = false
 
@@ -183,11 +183,11 @@ final class VoiceAssistantViewModel: ObservableObject {
     private var loadedSttEngine: SttEngine? = nil
 
     // MARK: - Call-mode loop
-    private var callLoopTask: Task<Void, Never>?
+    private var callLoopTask: _Concurrency.Task<Void, Never>?
 
     // MARK: - Generation tracking
     private var generationSeq: Int64 = 0
-    private var watchdogTask: Task<Void, Never>?
+    private var watchdogTask: _Concurrency.Task<Void, Never>?
 
     // MARK: - MCP permission
     @Published private(set) var mcpPermissionRequest: McpToolCallPermissionRequest? = nil
@@ -213,7 +213,7 @@ final class VoiceAssistantViewModel: ObservableObject {
         self.ttsDelegate = delegate
         synthesizer.delegate = delegate
 
-        Task { await self.loadTopicAndInitTts() }
+        _Concurrency.Task { await self.loadTopicAndInitTts() }
     }
 
     private func loadTopicAndInitTts() async {
@@ -361,9 +361,9 @@ final class VoiceAssistantViewModel: ObservableObject {
         uiState.neuralVoice = NeuralVoiceState(stage: .preparing)
         // NOTE: KoreanNeuralTts.load is synchronous in the iOS stub; run it on a background thread
         // so it doesn't block the main actor. When a real async engine is available, use await.
-        Task.detached { [weak self] in
+        _Concurrency.Task.detached { [weak self] in
             let result = KoreanNeuralTts.load(model: model) { pct in
-                Task { @MainActor [weak self] in
+                _Concurrency.Task { @MainActor [weak self] in
                     self?.uiState.neuralVoice = NeuralVoiceState(stage: .preparing, unpackPercent: pct)
                 }
             }
@@ -396,9 +396,9 @@ final class VoiceAssistantViewModel: ObservableObject {
         preparingMelo = true
         uiState.meloVoice = NeuralVoiceState(stage: .preparing)
         // NOTE: MeloNeuralTts.load is synchronous in the iOS stub; run off the main actor.
-        Task.detached { [weak self] in
+        _Concurrency.Task.detached { [weak self] in
             let result = MeloNeuralTts.load(model: model) { pct in
-                Task { @MainActor [weak self] in
+                _Concurrency.Task { @MainActor [weak self] in
                     self?.uiState.meloVoice = NeuralVoiceState(stage: .preparing, unpackPercent: pct)
                 }
             }
@@ -535,7 +535,7 @@ final class VoiceAssistantViewModel: ObservableObject {
             if let result {
                 let transcript = result.bestTranscription.formattedString
                 if result.isFinal {
-                    Task { @MainActor in
+                    _Concurrency.Task { @MainActor in
                         self.cleanup()
                         self.uiState.isListening = false
                         self.uiState.partialTranscript = ""
@@ -547,11 +547,11 @@ final class VoiceAssistantViewModel: ObservableObject {
                         }
                     }
                 } else {
-                    Task { @MainActor in self.uiState.partialTranscript = transcript }
+                    _Concurrency.Task { @MainActor in self.uiState.partialTranscript = transcript }
                 }
             }
             if let error {
-                Task { @MainActor in
+                _Concurrency.Task { @MainActor in
                     let wasListening = self.uiState.isListening
                     self.cleanup()
                     self.uiState.isListening = false
@@ -599,13 +599,13 @@ final class VoiceAssistantViewModel: ObservableObject {
     private func startCallLoop() {
         consecutiveSilentTurns = 0
         callLoopTask?.cancel()
-        callLoopTask = Task { [weak self] in
+        callLoopTask = _Concurrency.Task { [weak self] in
             guard let self else { return }
             // Open mic immediately on entering call mode.
             self.startListening()
-            while !Task.isCancelled {
+            while !_Concurrency.Task.isCancelled {
                 // Observe state changes; wait for the assistant to be fully idle.
-                try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms poll
+                try? await _Concurrency.Task.sleep(nanoseconds: 100_000_000) // 100 ms poll
                 let s = await self.uiState
                 let idle = s.inputMode == .call && !s.isListening && !s.isThinking && !s.isSpeaking
                 if idle {
@@ -613,7 +613,7 @@ final class VoiceAssistantViewModel: ObservableObject {
                     let cooldown = self.consecutiveSilentTurns > 0
                         ? CALL_SILENT_COOLDOWN_NS * UInt64(min(self.consecutiveSilentTurns, CALL_SILENT_BACKOFF_CAP))
                         : CALL_RELISTEN_DEBOUNCE_MS
-                    try? await Task.sleep(nanoseconds: cooldown)
+                    try? await _Concurrency.Task.sleep(nanoseconds: cooldown)
                     let now = await self.uiState
                     if now.inputMode == .call && !now.isListening && !now.isThinking && !now.isSpeaking {
                         await self.startListening()
@@ -654,8 +654,8 @@ final class VoiceAssistantViewModel: ObservableObject {
             uiState.isThinking = false
             uiState.partialTranscript = ""
             uiState.error = ""
-            Task {
-                let loaded = await Task.detached {
+            _Concurrency.Task {
+                let loaded = await _Concurrency.Task.detached {
                     self.chatHistoryStore.load(conversationId)
                 }.value
                 if self.activeConversationId == conversationId, !loaded.isEmpty {
@@ -785,9 +785,9 @@ final class VoiceAssistantViewModel: ObservableObject {
         // Stall watchdog.
         let lastOutputAt = AtomicTimestamp()
         watchdogTask?.cancel()
-        watchdogTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+        watchdogTask = _Concurrency.Task { [weak self] in
+            while !_Concurrency.Task.isCancelled {
+                try? await _Concurrency.Task.sleep(nanoseconds: 2_000_000_000)
                 guard let self else { return }
                 let idleNs = lastOutputAt.elapsed()
                 if idleNs >= GENERATION_STALL_TIMEOUT_NS {
@@ -811,7 +811,7 @@ final class VoiceAssistantViewModel: ObservableObject {
             input: input,
             resultListener: { [weak self] partial, done, _ in
                 guard let self else { return }
-                Task { @MainActor in
+                _Concurrency.Task { @MainActor in
                     guard self.activeConversationId == convId,
                           self.generationSeq == genId else { return }
                     lastOutputAt.update()
@@ -844,7 +844,7 @@ final class VoiceAssistantViewModel: ObservableObject {
             cleanUpListener: {},
             onError: { [weak self] message in
                 guard let self else { return }
-                Task { @MainActor in
+                _Concurrency.Task { @MainActor in
                     if streaming { self.cancelStreamingSpeech() }
                     guard self.activeConversationId == convId,
                           self.generationSeq == genId else { return }
@@ -873,7 +873,7 @@ final class VoiceAssistantViewModel: ObservableObject {
     private func resolveNeuralVoice(_ selectedId: String) -> (NeuralTtsEngine?, Int) {
         let base = selectedId.components(separatedBy: "#").first ?? selectedId
         let sid = Int(selectedId.components(separatedBy: "#").last ?? "") ?? 0
-        if let melo, base == "neural:melo" { return (melo, sid) }
+        if let melo = meloTts, base == "neural:melo" { return (melo, sid) }
         if let kss = neuralTts, base == "neural:kss" || selectedId.isEmpty { return (kss, sid) }
         return (nil, 0)
     }
@@ -900,7 +900,7 @@ final class VoiceAssistantViewModel: ObservableObject {
     }
 
     private func speakNeural(_ engine: NeuralTtsEngine, text: String, sid: Int) {
-        Task.detached { [weak self] in
+        _Concurrency.Task.detached { [weak self] in
             let safeSid = max(0, min(sid, engine.numSpeakers - 1))
             guard let result = engine.generate(text: text, sid: safeSid, speed: 1.0) else { return }
             await MainActor.run { self?.uiState.isSpeaking = true }
@@ -918,7 +918,7 @@ final class VoiceAssistantViewModel: ObservableObject {
         var continuation: AsyncStream<String>.Continuation!
         let stream = AsyncStream<String> { continuation = $0 }
         speakChannel = continuation
-        speakConsumerTask = Task { [weak self] in
+        speakConsumerTask = _Concurrency.Task { [weak self] in
             var first = true
             for await segment in stream {
                 guard let self else { break }
@@ -1009,7 +1009,7 @@ final class VoiceAssistantViewModel: ObservableObject {
     // MARK: - Persistence
 
     private func persist(_ conversationId: String, messages: [VoiceMessage]) {
-        Task.detached { [weak self] in
+        _Concurrency.Task.detached { [weak self] in
             self?.chatHistoryStore.save(conversationId, messages: messages)
         }
     }

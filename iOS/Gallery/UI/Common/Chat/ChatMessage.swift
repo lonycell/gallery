@@ -273,7 +273,7 @@ final class ChatMessageThinking: ChatMessage {
   let inProgress: Bool
   init(content: String, inProgress: Bool, side: ChatSide = .agent, hideSenderLabel: Bool = false, accelerator: String = "") {
     self.content = content; self.inProgress = inProgress
-    super.init(type: .thinking, side: side, hideSenderLabel: hideSenderLabel, disableBubbleShape: true, accelerator: accelerator)
+    super.init(type: .thinking, side: side, accelerator: accelerator, hideSenderLabel: hideSenderLabel, disableBubbleShape: true)
   }
   override func clone() -> ChatMessage {
     ChatMessageThinking(content: content, inProgress: inProgress, side: side, hideSenderLabel: hideSenderLabel, accelerator: accelerator)

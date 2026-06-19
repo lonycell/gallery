@@ -50,9 +50,50 @@ struct GlobalModelManager: View {
 
   private var totalModelCount: Int { builtInModels.count + importedModels.count }
 
+  @ViewBuilder private var builtInModelsSection: some View {
+    ForEach(builtInModels, id: \.name) { model in
+      let expanded = expandedStates[model.name] ?? true
+      ModelItem(
+        model: model,
+        task: nil,
+        modelManagerViewModel: viewModel,
+        onModelClicked: handleModelClick,
+        onBenchmarkClicked: onBenchmarkClicked,
+        expanded: expanded,
+        showBenchmarkButton: model.runtimeType == .litertLm,
+        onExpanded: { expandedStates[model.name] = $0 },
+        modelVariants: modelVariants[model.name] ?? []
+      )
+    }
+  }
+
+  @ViewBuilder private var importedModelsSection: some View {
+    if !importedModels.isEmpty {
+      Text(Str.modelListImportedModelsTitle)
+        .font(AppTypography.labelLarge)
+        .foregroundStyle(colors.onSurface)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 32)
+        .padding(.bottom, 8)
+
+      ForEach(importedModels, id: \.name) { model in
+        ModelItem(
+          model: model,
+          task: nil,
+          modelManagerViewModel: viewModel,
+          onModelClicked: handleModelClick,
+          onBenchmarkClicked: onBenchmarkClicked,
+          expanded: true,
+          showBenchmarkButton: model.runtimeType == .litertLm
+        )
+      }
+    }
+  }
+
   var body: some View {
     NavigationStack {
-      ZStack(alignment: .bottomCenter) {
+      ZStack(alignment: .bottom) {
         ScrollView {
           LazyVStack(spacing: 8) {
             // Promo banner
@@ -69,44 +110,10 @@ struct GlobalModelManager: View {
             }
 
             // Built-in models
-            ForEach(builtInModels, id: \.name) { model in
-              let expanded = expandedStates[model.name] ?? true
-              // NOTE: ModelItem is owned by common/modelitem agent — reference by name.
-              ModelItem(
-                model: model,
-                modelVariants: modelVariants[model.name] ?? [],
-                task: nil,
-                modelManagerViewModel: viewModel,
-                onModelClicked: handleModelClick,
-                onBenchmarkClicked: onBenchmarkClicked,
-                expanded: expanded,
-                showBenchmarkButton: model.runtimeType == .litertLm,
-                onExpanded: { expandedStates[model.name] = $0 }
-              )
-            }
+            builtInModelsSection
 
             // Imported models section
-            if !importedModels.isEmpty {
-              Text(Str.modelListImportedModelsTitle)
-                .font(AppTypography.labelLarge)
-                .foregroundStyle(colors.onSurface)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.top, 32)
-                .padding(.bottom, 8)
-
-              ForEach(importedModels, id: \.name) { model in
-                ModelItem(
-                  model: model,
-                  task: nil,
-                  modelManagerViewModel: viewModel,
-                  onModelClicked: handleModelClick,
-                  onBenchmarkClicked: onBenchmarkClicked,
-                  expanded: true,
-                  showBenchmarkButton: model.runtimeType == .litert_lm
-                )
-              }
-            }
+            importedModelsSection
 
             Spacer().frame(height: 100)
           }
@@ -247,7 +254,7 @@ struct GlobalModelManager: View {
     }
     .onAppear {
       rebuildModels()
-      Task {
+      _Concurrency.Task {
         showPromo = !viewModel.dataStoreRepository.hasViewedPromo(promoId: promoId)
       }
     }

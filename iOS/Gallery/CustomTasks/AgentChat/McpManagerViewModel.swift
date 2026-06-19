@@ -75,7 +75,7 @@ final class McpManagerViewModel: ObservableObject {
     func addMcpServer(url: String, authMethod: McpAuthMethod, headerName: String, headerValue: String) {
         uiState.loadingMcpServer = true
         uiState.error = nil
-        Task {
+        _Concurrency.Task {
             do {
                 let auth: McpAuthMethod
                 switch authMethod {
@@ -115,7 +115,7 @@ final class McpManagerViewModel: ObservableObject {
 
     func removeMcpServer(url: String) {
         uiState.mcpServers.removeAll { $0.mcpServer.url == url }
-        Task { await persistCurrentServers() }
+        _Concurrency.Task { await persistCurrentServers() }
     }
 
     func hasMcpServer(url: String) -> Bool { uiState.mcpServers.contains { $0.mcpServer.url == url } }
@@ -124,7 +124,7 @@ final class McpManagerViewModel: ObservableObject {
 
     func setMcpServerEnabled(url: String, enabled: Bool) {
         updateServer(url: url) { $0.mcpServer.enabled = enabled }
-        Task { await persistCurrentServers() }
+        _Concurrency.Task { await persistCurrentServers() }
     }
 
     func setMcpToolEnabled(url: String, toolName: String, enabled: Bool) {
@@ -133,19 +133,19 @@ final class McpManagerViewModel: ObservableObject {
                 var t = $0; if t.name == toolName { t.enabled = enabled }; return t
             }
         }
-        Task { await persistCurrentServers() }
+        _Concurrency.Task { await persistCurrentServers() }
     }
 
     func setAllMcpServerEnabled(enabled: Bool) {
         uiState.mcpServers = uiState.mcpServers.map { var s = $0; if s.error == nil { s.mcpServer.enabled = enabled }; return s }
-        Task { await persistCurrentServers() }
+        _Concurrency.Task { await persistCurrentServers() }
     }
 
     func setAllMcpToolsEnabled(url: String, enabled: Bool) {
         updateServer(url: url) { state in
             state.mcpServer.tools = state.mcpServer.tools.map { var t = $0; t.enabled = enabled; return t }
         }
-        Task { await persistCurrentServers() }
+        _Concurrency.Task { await persistCurrentServers() }
     }
 
     func setMcpToolAlwaysAllow(url: String, toolName: String, alwaysAllow: Bool) {
@@ -154,7 +154,7 @@ final class McpManagerViewModel: ObservableObject {
                 var t = $0; if t.name == toolName { t.alwaysAllow = alwaysAllow }; return t
             }
         }
-        Task { await persistCurrentServers() }
+        _Concurrency.Task { await persistCurrentServers() }
     }
 
     // MARK: - Prompt generation

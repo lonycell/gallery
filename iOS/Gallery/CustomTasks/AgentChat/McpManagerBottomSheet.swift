@@ -120,8 +120,8 @@ struct McpManagerBottomSheet: View {
                 HStack {
                     Text(Str.mcpServersCount(uiState.mcpServers.count)).font(AppTypography.labelLarge)
                     Spacer()
-                    Button(Str.turnOnAll) { mcpManagerViewModel.setAllMcpServerEnabled(true) }.buttonStyle(.plain).foregroundColor(colors.primary)
-                    Button(Str.turnOffAll) { mcpManagerViewModel.setAllMcpServerEnabled(false) }.buttonStyle(.plain).foregroundColor(colors.primary)
+                    Button(Str.turnOnAll) { mcpManagerViewModel.setAllMcpServerEnabled(enabled: true) }.buttonStyle(.plain).foregroundColor(colors.primary)
+                    Button(Str.turnOffAll) { mcpManagerViewModel.setAllMcpServerEnabled(enabled: false) }.buttonStyle(.plain).foregroundColor(colors.primary)
                 }
                 .padding(.horizontal, 16).padding(.bottom, 8)
             }
@@ -183,9 +183,9 @@ private struct McpServerItemRowView: View {
             HStack(spacing: 8) {
                 let enabledCount = server.tools.filter { $0.enabled }.count
                 let totalCount = server.tools.count
-                SmallFilledTonalButton(label: "Tools (\(enabledCount)/\(totalCount))", systemImage: "slider.horizontal.3", action: onToolsClick)
+                SmallFilledTonalButton(onClick: onToolsClick, label: "Tools (\(enabledCount)/\(totalCount))", systemImage: "slider.horizontal.3")
                     .disabled(serverState.error != nil)
-                SmallOutlinedButton(label: Str.delete, systemImage: "trash", action: onDeleteClick)
+                SmallOutlinedButton(onClick: onDeleteClick, label: Str.delete, systemImage: "trash")
             }
             .padding(.top, 16)
         }
@@ -202,22 +202,6 @@ private struct McpServerStateIdentifiable: Identifiable {
     var id: String { url }
 }
 
-// MARK: - Strings
-
-private extension Str {
-    static let manageMcpServers = "Manage MCP servers"
-    static let addMcpServer = "Add MCP server"
-    static let learnMoreAboutMcp = "Learn more about MCP in Google AI Edge Gallery"
-    static let learnMoreAboutMcpShort = "Learn more"
-    static let searchMcpServer = "Search for an MCP server"
-    static let deleteMcpServerDialogTitle = "Delete MCP server"
-    static let deleteMcpServerDialogContent = "Are you sure you want to delete this MCP server?"
-    static func mcpServersCount(_ n: Int) -> String { "\(n) MCP server\(n == 1 ? "" : "s")" }
-    static let turnOnAll = "Turn on all"
-    static let turnOffAll = "Turn off all"
-    static let delete = "Delete"
-    static let cancel = "Cancel"
-}
 
 // MARK: - Reuse SearchBar + SmallButtons (inline)
 // (Identical helpers to SkillManagerBottomSheet — factor into a shared file if desired.)
@@ -236,35 +220,5 @@ private struct SearchBar: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(colors.surfaceContainerHigh).clipShape(Capsule())
-    }
-}
-
-private struct SmallFilledTonalButton: View {
-    let label: String; let systemImage: String; let action: () -> Void
-    @Environment(\.galleryColors) var colors
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage).font(.system(size: 14))
-                Text(label).font(AppTypography.labelMedium)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-        }
-        .buttonStyle(.borderedProminent).tint(colors.secondaryContainer).foregroundColor(colors.onSecondaryContainer)
-        .controlSize(.small)
-    }
-}
-
-private struct SmallOutlinedButton: View {
-    let label: String; let systemImage: String; let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage).font(.system(size: 14))
-                Text(label).font(AppTypography.labelMedium)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-        }
-        .buttonStyle(.bordered).controlSize(.small)
     }
 }

@@ -54,7 +54,7 @@ class LlmChatViewModelBase: ChatViewModel {
 
   /// Loads the effective system prompt for `task` from the repository (or task default).
   func loadSystemPrompt(task: Task) {
-    Task { [weak self, systemPromptRepository] in
+    _Concurrency.Task { [weak self, systemPromptRepository] in
       let effective = await SystemPromptHelper.getEffectiveSystemPrompt(
         repo: systemPromptRepository, task: task)
       await MainActor.run { self?.uiSystemPrompt = effective }
@@ -69,7 +69,7 @@ class LlmChatViewModelBase: ChatViewModel {
     systemPromptUpdatedMessage: String
   ) {
     uiSystemPrompt = newPrompt
-    Task { [weak self, systemPromptRepository] in
+    _Concurrency.Task { [weak self, systemPromptRepository] in
       await systemPromptRepository?.updateSystemPrompt(taskId: task.id, newPrompt: newPrompt)
       await self?.resetSession(
         task: task,
@@ -101,7 +101,7 @@ class LlmChatViewModelBase: ChatViewModel {
     let accelerator = model.getStringConfigValue(ConfigKeys.ACCELERATOR, default: "")
     let helper = llmModelHelper
 
-    Task { [weak self] in
+    _Concurrency.Task { [weak self] in
       guard let self else { return }
 
       self.setInProgress(true)
@@ -113,11 +113,11 @@ class LlmChatViewModelBase: ChatViewModel {
       // Wait until model instance is ready.
       var waited = 0
       while model.instance == nil {
-        try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms
+        try? await _Concurrency.Task.sleep(nanoseconds: 100_000_000) // 100 ms
         waited += 1
         if waited > 600 { break } // 60-second safety guard
       }
-      try? await Task.sleep(nanoseconds: 500_000_000) // 500 ms grace
+      try? await _Concurrency.Task.sleep(nanoseconds: 500_000_000) // 500 ms grace
 
       // Build audio WAV buffers from ChatMessageAudioClip.
       let audioClips: [Data] = audioMessages.map { $0.genDataForWav() }
@@ -136,7 +136,7 @@ class LlmChatViewModelBase: ChatViewModel {
         input: input,
         resultListener: { [weak self] partialResult, done, partialThinkingResult in
           guard let self else { return }
-          Task { @MainActor [weak self] in
+          _Concurrency.Task { @MainActor [weak self] in
             guard let self else { return }
             // Ignore control tokens.
             if partialResult.hasPrefix("<ctrl") { return }
@@ -223,14 +223,14 @@ class LlmChatViewModelBase: ChatViewModel {
           }
         },
         cleanUpListener: { [weak self] in
-          Task { @MainActor [weak self] in
+          _Concurrency.Task { @MainActor [weak self] in
             self?.setInProgress(false)
             self?.setPreparing(false)
           }
         },
         onError: { [weak self] message in
           print("\(TAG): Error during inference: \(message)")
-          Task { @MainActor [weak self] in
+          _Concurrency.Task { @MainActor [weak self] in
             self?.setInProgress(false)
             self?.setPreparing(false)
             onError(message)
@@ -267,7 +267,7 @@ class LlmChatViewModelBase: ChatViewModel {
     clearHistory: Bool = true
   ) {
     let helper = llmModelHelper
-    Task { [weak self] in
+    _Concurrency.Task { [weak self] in
       guard let self else { return }
       self.setIsResettingSession(true)
       if clearHistory { self.clearAllMessages(model: model) }
@@ -297,11 +297,11 @@ class LlmChatViewModelBase: ChatViewModel {
     onError: @escaping (String) -> Void,
     allowThinking: Bool = false
   ) {
-    Task { [weak self] in
+    _Concurrency.Task { [weak self] in
       guard let self else { return }
       var waited = 0
       while model.instance == nil {
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        try? await _Concurrency.Task.sleep(nanoseconds: 100_000_000)
         waited += 1
         if waited > 600 { break }
       }
@@ -329,10 +329,10 @@ class LlmChatViewModelBase: ChatViewModel {
     // Clean up then re-initialize. ModelManagerViewModel broadcasts status changes via
     // @Published uiState so the screen observes the INITIALIZED/ERROR transitions.
     modelManagerViewModel.cleanupModel(task: task, model: model)
-    Task { [weak self] in
+    _Concurrency.Task { [weak self] in
       guard let self else { return }
       // Brief pause to let the cleanup complete before re-initializing.
-      try? await Task.sleep(nanoseconds: 300_000_000)
+      try? await _Concurrency.Task.sleep(nanoseconds: 300_000_000)
       // initializeModel() posts status changes through uiState; observe them in
       // the screen layer for success/error UI. Here we post a re-init info message.
       modelManagerViewModel.initializeModel(task: task, model: model)

@@ -86,8 +86,11 @@ struct SettingsDialog: View {
                   .foregroundStyle(colors.onSurfaceVariant)
 
                 let expDate = Date(timeIntervalSince1970: Double(token.expiresAtMs) / 1000)
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                let formatter: DateFormatter = {
+                  let f = DateFormatter()
+                  f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                  return f
+                }()
                 Text("Expires at: \(formatter.string(from: expDate))")
                   .font(AppTypography.bodyMedium)
                   .foregroundStyle(colors.onSurfaceVariant)

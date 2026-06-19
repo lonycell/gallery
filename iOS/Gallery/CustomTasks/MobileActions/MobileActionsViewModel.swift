@@ -97,7 +97,7 @@ final class MobileActionsViewModel: ObservableObject {
             input: userPrompt,
             resultListener: { [weak self] partial, done, _ in
                 guard let self else { return }
-                Task { @MainActor in
+                _Concurrency.Task { @MainActor in
                     if !partial.hasPrefix("<ctrl") {
                         self.appendModelResponse(partial)
                     }
@@ -109,7 +109,7 @@ final class MobileActionsViewModel: ObservableObject {
             },
             cleanUpListener: {},
             onError: { [weak self] error in
-                Task { @MainActor in
+                _Concurrency.Task { @MainActor in
                     self?.setProcessing(false)
                     onError(error)
                 }

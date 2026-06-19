@@ -62,7 +62,7 @@ final class ExampleAgentViewModel: ObservableObject {
             model: model,
             input: input,
             resultListener: { [weak self] partial, done, _ in
-                Task { @MainActor [weak self] in
+                _Concurrency.Task { @MainActor [weak self] in
                     guard let self else { return }
                     if !partial.hasPrefix("<ctrl") {
                         builder += partial
@@ -75,7 +75,7 @@ final class ExampleAgentViewModel: ObservableObject {
             },
             cleanUpListener: {},
             onError: { [weak self] message in
-                Task { @MainActor [weak self] in
+                _Concurrency.Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.uiState.generating = false
                     self.uiState.error = message.isEmpty ? "Error" : message

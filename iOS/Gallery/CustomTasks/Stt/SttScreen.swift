@@ -11,6 +11,7 @@ struct SttScreen: View {
   @ObservedObject var modelManagerViewModel: ModelManagerViewModel
   @StateObject private var viewModel = SttViewModel()
 
+  @ViewBuilder
   var body: some View {
     let mmState = modelManagerViewModel.uiState
     let model = mmState.selectedModel
@@ -23,17 +24,8 @@ struct SttScreen: View {
         Spacer()
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      return
-    }
-
-    guard let instance = model.instance as? SttModelInstance else {
-      Text("모델 초기화 중 오류가 발생했습니다.")
-        .foregroundStyle(.red)
-        .padding()
-      return
-    }
-
-    VStack(alignment: .center, spacing: 16) {
+    } else if let instance = model.instance as? SttModelInstance {
+      VStack(alignment: .center, spacing: 16) {
       // Transcript display
       ScrollView {
         if viewModel.uiState.transcript.isEmpty {
@@ -100,8 +92,13 @@ struct SttScreen: View {
         .buttonStyle(.borderedProminent)
         .disabled(viewModel.uiState.isTranscribing)
       }
+      }
+      .padding(16)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else {
+      Text("모델 초기화 중 오류가 발생했습니다.")
+        .foregroundStyle(.red)
+        .padding()
     }
-    .padding(16)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

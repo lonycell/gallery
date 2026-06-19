@@ -50,7 +50,7 @@ enum AICoreModelPreference: String, Codable {
   case full
 }
 
-struct ModelFile: Equatable {
+struct ModelFile: Equatable, Codable {
   let fileName: String
   let commitHash: String
 }
@@ -271,4 +271,4 @@ struct ModelDownloadStatus {
   var remainingMs: Int64 = 0
 }
 
-let EMPTY_MODEL = Model(name: "empty", downloadFileName: "empty.tflite", url: "", sizeInBytes: 0)
+let EMPTY_MODEL = Model(name: "empty", url: "", sizeInBytes: 0, downloadFileName: "empty.tflite")

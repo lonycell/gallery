@@ -146,14 +146,14 @@ struct ModelList: View {
             // NOTE: ModelItem is owned by the common/modelitem agent — reference by name.
             ModelItem(
               model: model,
-              modelVariants: modelVariants[model.name] ?? [],
               task: task,
               modelManagerViewModel: modelManagerViewModel,
               onModelClicked: onModelClicked,
               onBenchmarkClicked: onBenchmarkClicked,
               expanded: expanded,
               showBenchmarkButton: true,
-              onExpanded: { expandedStates[model.name] = $0 }
+              onExpanded: { expandedStates[model.name] = $0 },
+              modelVariants: modelVariants[model.name] ?? []
             )
             .opacity(modelListProgress)
             .offset(y: CONTENT_ANIMATION_OFFSET * (1 - modelListProgress))

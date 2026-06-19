@@ -21,7 +21,7 @@ struct SecretEditorDialog: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 Text(title).font(AppTypography.titleLarge).padding(.top, 8)
-                MarkdownText(fieldLabel)
+                MarkdownText(text: fieldLabel)
                     .font(AppTypography.bodyMedium)
                     .foregroundColor(colors.onSurface)
 

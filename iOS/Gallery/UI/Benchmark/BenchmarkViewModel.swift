@@ -16,7 +16,7 @@ enum Aggregation: String, CaseIterable {
   case max    = "max"
 }
 
-struct BenchmarkResultInfo: Identifiable {
+struct BenchmarkResultInfo: Identifiable, Equatable {
   let id: String
   var benchmarkResult: BenchmarkResult
   var expanded: Bool = false
@@ -56,7 +56,7 @@ final class BenchmarkViewModel: ObservableObject {
   /// when available.
   func runBenchmark(model: Model, accelerator: String, prefillTokens: Int,
                     decodeTokens: Int, runCount: Int) {
-    Task { @MainActor in
+    _Concurrency.Task { @MainActor in
       setRunning(true)
       setRunProgress(0)
       setTotalRunCount(runCount)

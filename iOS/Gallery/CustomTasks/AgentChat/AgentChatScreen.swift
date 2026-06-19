@@ -38,7 +38,7 @@ struct AgentChatScreen: View {
         self.navigateUp = navigateUp
         self.agentTools = agentTools
         self.initialQuery = initialQuery
-        _viewModel = StateObject(wrappedValue: AgentChatViewModel(dataStoreRepository: dataStoreRepository))
+        _viewModel = StateObject(wrappedValue: AgentChatViewModel(store: dataStoreRepository))
         _skillManagerViewModel = StateObject(wrappedValue: SkillManagerViewModel(dataStoreRepository: dataStoreRepository))
         _mcpManagerViewModel = StateObject(wrappedValue: McpManagerViewModel(dataStoreRepository: dataStoreRepository))
     }
@@ -75,13 +75,19 @@ struct AgentChatScreen: View {
         ZStack {
             ChatView(
                 task: task,
-                modelManagerViewModel: modelManagerViewModel,
                 viewModel: viewModel,
+                modelManagerViewModel: modelManagerViewModel,
                 navigateUp: navigateUp,
                 skillCount: skillCount,
-                mcpToolsCount: mcpToolsCount,
+                mcpCount: mcpToolsCount,
+                onResetSessionClicked: { model, initialMsgs, clearHistory, onDone in
+                    resetSessionWithCurrentSkillsAndMcps(
+                        model: model, initialMessages: initialMsgs, clearHistory: clearHistory, onDone: onDone)
+                },
                 onSkillClicked: { showSkillManager = true },
                 onMcpClicked: { showMcpManager = true },
+                composableBelowMessageList: { _ in AnyView(belowMessageListView) },
+                emptyStateView: { _ in AnyView(emptyStateView) },
                 curSystemPrompt: curSystemPrompt,
                 onSystemPromptChanged: { newPrompt in
                     curSystemPrompt = newPrompt
@@ -89,16 +95,7 @@ struct AgentChatScreen: View {
                         task: task,
                         model: modelManagerViewModel.uiState.selectedModel,
                         newPrompt: newPrompt)
-                },
-                getActiveSkills: {
-                    skillManagerViewModel.getSelectedSkills().map { skillManagerViewModel.getSkillShortId($0) }
-                },
-                onResetSession: { task, model, initialMsgs, clearHistory, onDone in
-                    resetSessionWithCurrentSkillsAndMcps(
-                        model: model, initialMessages: initialMsgs, clearHistory: clearHistory, onDone: onDone)
-                },
-                emptyStateView: AnyView(emptyStateView),
-                belowMessageListView: AnyView(belowMessageListView)
+                }
             )
         }
         .task {
@@ -267,14 +264,4 @@ struct AgentChatScreen: View {
 // MARK: - AskMcpToolCallPermissionAction: Identifiable (for .sheet(item:))
 extension AskMcpToolCallPermissionAction: Identifiable {
     var id: ObjectIdentifier { ObjectIdentifier(self) }
-}
-
-// MARK: - Color(hex:) convenience
-extension Color {
-    init(hex: UInt32) {
-        let r = Double((hex >> 16) & 0xFF) / 255
-        let g = Double((hex >> 8) & 0xFF) / 255
-        let b = Double(hex & 0xFF) / 255
-        self.init(red: r, green: g, blue: b)
-    }
 }

@@ -8,7 +8,7 @@
 
 import Foundation
 
-struct ValueSeries: Codable {
+struct ValueSeries: Codable, Equatable {
   var value: [Double] = []
   var min: Double = 0
   var max: Double = 0
@@ -18,7 +18,7 @@ struct ValueSeries: Codable {
   var pct75: Double = 0
 }
 
-struct LlmBenchmarkBasicInfo: Codable {
+struct LlmBenchmarkBasicInfo: Codable, Equatable {
   var startMs: Int64 = 0
   var endMs: Int64 = 0
   var modelName: String = ""
@@ -29,7 +29,7 @@ struct LlmBenchmarkBasicInfo: Codable {
   var appVersion: String = ""
 }
 
-struct LlmBenchmarkStats: Codable {
+struct LlmBenchmarkStats: Codable, Equatable {
   var prefillSpeed: ValueSeries = ValueSeries()
   var decodeSpeed: ValueSeries = ValueSeries()
   var timeToFirstToken: ValueSeries = ValueSeries()
@@ -37,12 +37,12 @@ struct LlmBenchmarkStats: Codable {
   var nonFirstInitTimeMs: ValueSeries = ValueSeries()
 }
 
-struct LlmBenchmarkResult: Codable {
+struct LlmBenchmarkResult: Codable, Equatable {
   var basicInfo: LlmBenchmarkBasicInfo = LlmBenchmarkBasicInfo()
   var stats: LlmBenchmarkStats = LlmBenchmarkStats()
 }
 
-struct BenchmarkResult: Codable, Identifiable {
+struct BenchmarkResult: Codable, Identifiable, Equatable {
   var id: String = UUID().uuidString
   var llmResult: LlmBenchmarkResult? = nil
 }

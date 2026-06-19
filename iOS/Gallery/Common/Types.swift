@@ -23,12 +23,15 @@ struct JsonObjAndTextContent<T> {
   let textContent: String
 }
 
-final class AudioClip {
+final class AudioClip: Equatable {
   let audioData: Data
   let sampleRate: Int
   init(audioData: Data, sampleRate: Int) {
     self.audioData = audioData
     self.sampleRate = sampleRate
+  }
+  static func == (lhs: AudioClip, rhs: AudioClip) -> Bool {
+    lhs.audioData == rhs.audioData && lhs.sampleRate == rhs.sampleRate
   }
 }
 

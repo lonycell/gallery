@@ -66,7 +66,7 @@ struct ModelDownloadStatusInfoPanel: View {
           }
         } else {
           Button("다운로드 및 체험하기") {
-            Task { await modelManagerViewModel.downloadModel(task: task, model: model) }
+            _Concurrency.Task { await modelManagerViewModel.downloadModel(task: task, model: model) }
           }
           .buttonStyle(.borderedProminent)
         }

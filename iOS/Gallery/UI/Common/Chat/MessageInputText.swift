@@ -15,8 +15,7 @@ import PhotosUI
 import AVFoundation
 
 // AudioClip is defined in Common/Types.swift.
-private let MAX_IMAGE_COUNT = 10
-private let MAX_AUDIO_CLIP_COUNT = 1
+// MAX_IMAGE_COUNT / MAX_AUDIO_CLIP_COUNT are defined in Data/Consts.swift.
 private let SAMPLE_RATE_FOR_CLIP = 16000
 
 struct MessageInputText: View {
@@ -164,7 +163,7 @@ struct MessageInputText: View {
     .onChange(of: pickedImages) { onPickedImagesChanged($0) }
     .onChange(of: pickedAudioClips) { onPickedAudioClipsChanged($0) }
     .onChange(of: photoPickerItems) { items in
-      Task {
+      _Concurrency.Task {
         var bitmaps: [UIImage] = []
         for item in items {
           if let data = try? await item.loadTransferable(type: Data.self),
@@ -358,7 +357,7 @@ struct MessageInputText: View {
       allowsMultipleSelection: false
     ) { result in
       guard case .success(let urls) = result, let url = urls.first else { return }
-      Task.detached { @MainActor in
+      _Concurrency.Task.detached { @MainActor in
         if let data = try? Data(contentsOf: url) {
           let stripped = self.stripWavHeader(data)
           let clip = AudioClip(audioData: stripped, sampleRate: SAMPLE_RATE_FOR_CLIP)

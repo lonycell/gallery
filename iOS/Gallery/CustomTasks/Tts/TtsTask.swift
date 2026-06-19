@@ -85,6 +85,7 @@ final class TtsTask: CustomTask {
         info:
           "A single-speaker English VITS voice (LJSpeech) exported for sherpa-onnx. " +
           "Uses a lexicon for pronunciation.",
+        configs: TTS_CONFIGS,
         learnMoreUrl: "https://huggingface.co/csukuangfj/vits-ljs",
         url: "\(VITS_LJS_BASE_URL)/vits-ljs.int8.onnx",
         sizeInBytes: 37_423_560,
@@ -102,30 +103,29 @@ final class TtsTask: CustomTask {
             downloadFileName: "lexicon.txt",
             sizeInBytes: 3_708_181
           ),
-        ],
-        configs: TTS_CONFIGS
+        ]
       ),
       Model(
         name: TTS_MODEL_VITS_KSS_KO,
         info:
           "한국어 단일 화자 VITS 음성(KSS 데이터셋, mimic3에서 변환). " +
           "espeak-ng 음소화 데이터를 포함해 하나의 압축 파일로 내려받은 뒤 기기에서 자동으로 해제합니다.",
+        configs: TTS_CONFIGS,
         learnMoreUrl: "https://huggingface.co/csukuangfj/vits-mimic3-ko_KO-kss_low",
         url: VITS_KSS_KO_URL,
         sizeInBytes: 66_838_474,
-        downloadFileName: VITS_KSS_KO_ARCHIVE,
-        configs: TTS_CONFIGS
+        downloadFileName: VITS_KSS_KO_ARCHIVE
       ),
       Model(
         name: TTS_MODEL_MELO_KO,
         info:
           "MeloTTS(MyShell.ai)의 한국어 음성. 매우 자연스러운 한국어 발화를 제공합니다. " +
           "sherpa-onnx에서는 VITS 모델로 동작하며, 모델·토큰·렉시콘을 하나의 압축 파일로 내려받습니다.",
+        configs: TTS_CONFIGS,
         learnMoreUrl: "https://huggingface.co/myshell-ai/MeloTTS-Korean",
         url: MELO_KO_URL,
         sizeInBytes: MELO_KO_SIZE_BYTES,
-        downloadFileName: MELO_KO_ARCHIVE,
-        configs: TTS_CONFIGS
+        downloadFileName: MELO_KO_ARCHIVE
       ),
     ]
   )
@@ -135,7 +135,7 @@ final class TtsTask: CustomTask {
     systemInstruction: Contents?,
     onDone: @escaping (String) -> Void
   ) {
-    Task.detached {
+    _Concurrency.Task.detached {
       self.cleanUp(model: model)
 
       let result: NeuralTtsLoadResult

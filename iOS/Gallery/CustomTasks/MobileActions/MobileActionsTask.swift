@@ -133,6 +133,6 @@ final class MobileActionsTask: CustomTask {
 // singletons. Tasks reach them through these static properties, which are set by
 // AppContainer.init() (analogous to Hilt's SingletonComponent scope on Android).
 extension AppContainer {
-    static weak var sharedLlmHelper: LlmModelHelper?
-    static weak var sharedDataStore: DataStoreRepository?
+    nonisolated(unsafe) static weak var sharedLlmHelper: LlmModelHelper?
+    nonisolated(unsafe) static weak var sharedDataStore: DataStoreRepository?
 }

@@ -88,7 +88,7 @@ final class AppContainer: ObservableObject {
     let mm = modelManagerViewModel
     let rt = router
     notificationActionHandler.deepLinkHandler = { url in
-      Task { @MainActor in rt.handleDeepLink(url, modelManager: mm) }
+      _Concurrency.Task { @MainActor in rt.handleDeepLink(url, modelManager: mm) }
     }
     UNUserNotificationCenter.current().delegate = notificationActionHandler
   }

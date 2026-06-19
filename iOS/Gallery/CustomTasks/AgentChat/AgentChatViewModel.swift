@@ -40,27 +40,29 @@ final class AgentChatViewModel: ChatViewModel {
         if let last = messages.last as? ChatMessageCollapsableProgressPanel {
             var items = last.items
             if !addItemTitle.isEmpty {
-                items.append(CollapsableProgressItem(title: addItemTitle, description: addItemDescription, customData: customData))
+                items.append(ProgressPanelItem(title: addItemTitle, description: addItemDescription))
             }
             messages[messages.count - 1] = ChatMessageCollapsableProgressPanel(
-                title: title, inProgress: inProgress, items: items, side: last.side,
-                hideSenderLabel: last.hideSenderLabel, customData: customData)
+                title: title, inProgress: inProgress, accelerator: last.accelerator,
+                items: items, logMessages: last.logMessages, customData: customData)
         } else {
             // No existing panel — create one
             let panel = ChatMessageCollapsableProgressPanel(
-                title: title, inProgress: inProgress,
-                items: addItemTitle.isEmpty ? [] : [CollapsableProgressItem(title: addItemTitle, description: addItemDescription, customData: customData)],
-                side: .agent, hideSenderLabel: true, customData: customData)
+                title: title, inProgress: inProgress, accelerator: "",
+                items: addItemTitle.isEmpty ? [] : [ProgressPanelItem(title: addItemTitle, description: addItemDescription)],
+                customData: customData)
             messages.append(panel)
         }
         uiState.messagesByModel[model.name] = messages
     }
 
-    func addLogMessageToLastCollapsableProgressPanel(model: Model, logMessage: LogMessage) {
+    override func addLogMessageToLastCollapsableProgressPanel(model: Model, logMessage: LogMessage) {
         guard var messages = uiState.messagesByModel[model.name],
               let last = messages.last as? ChatMessageCollapsableProgressPanel else { return }
-        var updated = last
-        updated.logMessages.append(logMessage)
+        let updated = ChatMessageCollapsableProgressPanel(
+            title: last.title, inProgress: last.inProgress, accelerator: last.accelerator,
+            doneIcon: last.doneIcon, items: last.items,
+            logMessages: last.logMessages + [logMessage], customData: last.customData)
         messages[messages.count - 1] = updated
         uiState.messagesByModel[model.name] = messages
     }
@@ -70,8 +72,8 @@ final class AgentChatViewModel: ChatViewModel {
     func resetSession(task: Task, model: Model, systemInstruction: String, clearHistory: Bool, initialMessages: [ChatMessage], onDone: @escaping () -> Void) {
         uiState.isResettingSession = true
         // NOTE: LiteRT-LM session reset is stubbed. Replace with LlmModelHelper.resetSession call.
-        Task {
-            try? await Task.sleep(nanoseconds: 100_000_000)
+        _Concurrency.Task {
+            try? await _Concurrency.Task.sleep(nanoseconds: 100_000_000)
             if clearHistory { clearAllMessages(model: model) }
             for msg in initialMessages { addMessage(model: model, message: msg) }
             uiState.isResettingSession = false

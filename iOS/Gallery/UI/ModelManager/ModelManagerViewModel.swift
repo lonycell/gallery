@@ -66,7 +66,7 @@ struct ModelManagerUiState {
 
 @MainActor
 final class ModelManagerViewModel: ObservableObject {
-  @Published private(set) var uiState = ModelManagerUiState()
+  @Published var uiState = ModelManagerUiState()
 
   let dataStoreRepository: DataStoreRepository
   let downloadRepository: DownloadRepository
@@ -174,7 +174,7 @@ final class ModelManagerViewModel: ObservableObject {
   }
 
   func cancelDownloadModel(_ model: Model) {
-    downloadRepository.cancelDownloadModel(model)
+    downloadRepository.cancelDownloadModel(model: model)
     setDownloadStatus(curModel: model, status: ModelDownloadStatus(status: .notDownloaded))
   }
 
@@ -281,7 +281,7 @@ final class ModelManagerViewModel: ObservableObject {
   /// Mirrors `loadModelAllowlist()` (network fetch with bundled fallback).
   func loadModelAllowlist() {
     uiState.loadingModelAllowlist = true
-    Task { @MainActor in
+    _Concurrency.Task { @MainActor in
       let allowlist = await Self.fetchAllowlist()
       if let allowlist {
         self.applyAllowlist(allowlist)

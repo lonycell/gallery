@@ -86,6 +86,7 @@ final class SttTask: CustomTask {
         name: STT_MODEL_SENSE_VOICE,
         info:
           "다국어 음성 인식 (zh/en/ja/ko/yue). 설정 메뉴에서 언어를 설정하거나 \"auto\"로 자동 감지하세요.",
+        configs: SENSE_VOICE_CONFIGS,
         learnMoreUrl:
           "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
         url: "\(SENSE_VOICE_BASE_URL)/model.int8.onnx",
@@ -98,8 +99,7 @@ final class SttTask: CustomTask {
             downloadFileName: "tokens.txt",
             sizeInBytes: 315_894
           )
-        ],
-        configs: SENSE_VOICE_CONFIGS
+        ]
       ),
       Model(
         name: STT_MODEL_WHISPER_TINY_EN,
@@ -128,6 +128,7 @@ final class SttTask: CustomTask {
         info:
           "다국어 음성 인식 (OpenAI Whisper base). 한국어 지원이 우수하며 small보다 빠릅니다. " +
           "설정 메뉴에서 언어를 변경할 수 있습니다 (기본값: 한국어).",
+        configs: WHISPER_KO_CONFIGS,
         learnMoreUrl: "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base",
         url: "\(WHISPER_BASE_ML_URL)/\(WHISPER_BASE_ENCODER)",
         sizeInBytes: 29_120_534,
@@ -145,14 +146,14 @@ final class SttTask: CustomTask {
             downloadFileName: WHISPER_BASE_TOKENS,
             sizeInBytes: 816_730
           ),
-        ],
-        configs: WHISPER_KO_CONFIGS
+        ]
       ),
       Model(
         name: STT_MODEL_WHISPER_SMALL_KO,
         info:
           "다국어 음성 인식 (OpenAI Whisper small). base보다 한국어 정확도가 높지만 더 큰 다운로드와 " +
           "느린 디코딩이 필요합니다. Voice Assistant에서도 사용됩니다.",
+        configs: WHISPER_KO_CONFIGS,
         learnMoreUrl: "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small",
         url: "\(WHISPER_SMALL_ML_URL)/\(WHISPER_SMALL_ENCODER)",
         sizeInBytes: 112_442_483,
@@ -170,8 +171,7 @@ final class SttTask: CustomTask {
             downloadFileName: WHISPER_SMALL_TOKENS,
             sizeInBytes: 816_730
           ),
-        ],
-        configs: WHISPER_KO_CONFIGS
+        ]
       ),
     ]
   )
@@ -181,7 +181,7 @@ final class SttTask: CustomTask {
     systemInstruction: Contents?,
     onDone: @escaping (String) -> Void
   ) {
-    Task.detached {
+    _Concurrency.Task.detached {
       self.cleanUp(model: model)
 
       let result = Self.buildEngine(model: model)

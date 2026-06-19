@@ -110,7 +110,7 @@ struct AddOrEditSkillBottomSheet: View {
                 llmRequirements = s.description
                 scriptsLoading = true
                 skillManagerViewModel.loadSkillScriptsContent(skill: s) { loaded in
-                    Task { @MainActor in
+                    _Concurrency.Task { @MainActor in
                         scriptContents = loaded
                         selectedScript = loaded.keys.first(where: { $0 == DEFAULT_SCRIPT_NAME }) ?? loaded.keys.first
                         scriptsLoading = false
@@ -237,30 +237,4 @@ struct AddOrEditSkillBottomSheet: View {
             }
         }
     }
-}
-
-private extension Str {
-    static let addSkillManualInputSheetTitle = "Create a skill"
-    static let name = "Name"
-    static let skillNameInputDescription = "REQUIRED. In the form of my-skill-name"
-    static let descriptionRequired = "Description*"
-    static let skillDescriptionInputDescription = "REQUIRED. A brief description of the skill's function and trigger conditions or keywords."
-    static let instructions = "Instructions"
-    static let skillInstructionsInputDescription = "Detailed instructions in Markdown format that LLM must follow to accomplish the task."
-    static let useCallJsTemplate = "Use call-JS template"
-    static let addDefaultScript = "Add default script"
-    static let generateLlmPromptButtonLabel = "Generate LLM prompt"
-    static let pasteFromClipboard = "Paste from clipboard"
-    static let addScript = "Add script"
-    static let scriptName = "Script name"
-    static let deleteScriptDialogTitle = "Delete script"
-    static let failedToSave = "Failed to save"
-    static let save = "Save"
-    static let discard = "Discard"
-    static let discardChangesDialogTitle = "Discard changes?"
-    static let discardChangesDialogContent = "You have unsaved changes. Are you sure you want to discard them?"
-    static let ok = "OK"
-    static let cancel = "Cancel"
-    static let delete = "Delete"
-    static let add = "Add"
 }

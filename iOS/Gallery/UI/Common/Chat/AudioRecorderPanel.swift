@@ -12,7 +12,7 @@
 import SwiftUI
 import AVFoundation
 
-private let MAX_AUDIO_CLIP_DURATION_SEC: Double = 30
+// MAX_AUDIO_CLIP_DURATION_SEC is defined in Data/Consts.swift.
 private let SAMPLE_RATE_HZ = 16000
 
 struct AudioRecorderPanel: View {

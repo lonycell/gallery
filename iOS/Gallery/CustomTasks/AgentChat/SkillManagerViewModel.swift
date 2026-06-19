@@ -75,7 +75,7 @@ final class SkillManagerViewModel: ObservableObject {
     init(dataStoreRepository: DataStoreRepository) {
         self.dataStoreRepository = dataStoreRepository
         if !SKILL_ALLOWLIST_URL.isEmpty {
-            Task { await loadSkillAllowlist() }
+            _Concurrency.Task { await loadSkillAllowlist() }
         }
     }
 
@@ -154,7 +154,7 @@ final class SkillManagerViewModel: ObservableObject {
     func validateAndAddSkillFromUrl(url: String, onSuccess: @escaping () -> Void, onValidationError: @escaping (String) -> Void) {
         setValidating(true)
         setValidationError(nil)
-        Task {
+        _Concurrency.Task {
             var normalizedUrl = url
             if normalizedUrl.hasSuffix("/SKILL.md") { normalizedUrl = String(normalizedUrl.dropLast("/SKILL.md".count)) }
             if normalizedUrl.hasSuffix("/") { normalizedUrl = String(normalizedUrl.dropLast()) }
@@ -206,7 +206,7 @@ final class SkillManagerViewModel: ObservableObject {
             let e = "No directory URL set."
             setValidationError(e); onValidationError(e); return
         }
-        Task {
+        _Concurrency.Task {
             _ = directoryURL.startAccessingSecurityScopedResource()
             defer { directoryURL.stopAccessingSecurityScopedResource() }
             let skillMdURL = directoryURL.appendingPathComponent("SKILL.md")
@@ -279,7 +279,7 @@ final class SkillManagerViewModel: ObservableObject {
 
     func deleteSkill(name: String) {
         uiState.skills.removeAll { $0.skill.name == name }
-        Task {
+        _Concurrency.Task {
             // Delete imported files
             if let skill = uiState.skills.first(where: { $0.skill.name == name })?.skill,
                !skill.importDirName.isEmpty {
@@ -293,7 +293,7 @@ final class SkillManagerViewModel: ObservableObject {
     func deleteSkills(names: Set<String>) {
         let toDelete = uiState.skills.filter { names.contains($0.skill.name) }.map { $0.skill }
         uiState.skills.removeAll { names.contains($0.skill.name) }
-        Task {
+        _Concurrency.Task {
             for skill in toDelete where !skill.importDirName.isEmpty {
                 let skillDir = FileSystem.appFilesDir.appendingPathComponent(skill.importDirName)
                 try? FileManager.default.removeItem(at: skillDir)
@@ -306,12 +306,12 @@ final class SkillManagerViewModel: ObservableObject {
         if let i = uiState.skills.firstIndex(where: { $0.skill.name == skill.skill.name }) {
             uiState.skills[i].skill.selected = selected
         }
-        Task { dataStoreRepository.setSkillSelected(skill.skill, selected: selected) }
+        _Concurrency.Task { dataStoreRepository.setSkillSelected(skill.skill, selected: selected) }
     }
 
     func setAllSkillsSelected(selected: Bool) {
         uiState.skills = uiState.skills.map { var s = $0; s.skill.selected = selected; return s }
-        Task { dataStoreRepository.setAllSkillsSelected(selected) }
+        _Concurrency.Task { dataStoreRepository.setAllSkillsSelected(selected) }
     }
 
     func getSelectedSkills() -> [Skill] { uiState.skills.filter { $0.skill.selected }.map { $0.skill } }
@@ -360,7 +360,7 @@ final class SkillManagerViewModel: ObservableObject {
     // MARK: - Save / edit skill
 
     func saveSkillEdit(index: Int, name: String, description: String, instructions: String, scriptsContent: [String: String], onSuccess: @escaping () -> Void, onError: @escaping (String) -> Void) {
-        Task {
+        _Concurrency.Task {
             let isNew = index < 0 || index >= uiState.skills.count
             if isNew {
                 if uiState.skills.contains(where: { $0.skill.name == name }) {
@@ -418,7 +418,7 @@ final class SkillManagerViewModel: ObservableObject {
     }
 
     func loadSkillScriptsContent(skill: Skill, onDone: @escaping ([String: String]) -> Void) {
-        Task {
+        _Concurrency.Task {
             guard !skill.importDirName.isEmpty else { onDone([:]); return }
             let scriptDir = FileSystem.appFilesDir.appendingPathComponent(skill.importDirName).appendingPathComponent("scripts")
             guard let files = try? FileManager.default.contentsOfDirectory(at: scriptDir, includingPropertiesForKeys: nil) else { onDone([:]); return }

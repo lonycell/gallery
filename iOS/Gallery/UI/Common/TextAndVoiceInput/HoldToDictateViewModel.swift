@@ -50,14 +50,14 @@ final class HoldToDictateViewModel: ObservableObject {
     setRecognizedText("")
     setRecognizing(true)
 
-    Task.detached(priority: .userInitiated) { [weak self] in
+    _Concurrency.Task.detached(priority: .userInitiated) { [weak self] in
       await self?.startRecognitionSession()
     }
   }
 
   func stopSpeechRecognition() {
-    Task {
-      try? await Task.sleep(nanoseconds: 500_000_000)
+    _Concurrency.Task {
+      try? await _Concurrency.Task.sleep(nanoseconds: 500_000_000)
       await MainActor.run {
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
@@ -126,16 +126,16 @@ final class HoldToDictateViewModel: ObservableObject {
       guard let self else { return }
       if let result {
         let text = result.bestTranscription.formattedString
-        Task { @MainActor in self.setRecognizedText(text) }
+        _Concurrency.Task { @MainActor in self.setRecognizedText(text) }
         if result.isFinal {
-          Task { @MainActor in
+          _Concurrency.Task { @MainActor in
             self.onDoneCallback?(text)
             self.setRecognizing(false)
           }
         }
       }
       if error != nil {
-        Task { @MainActor in self.setRecognizing(false) }
+        _Concurrency.Task { @MainActor in self.setRecognizing(false) }
       }
     }
   }

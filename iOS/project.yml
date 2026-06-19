@@ -14,7 +14,10 @@ settings:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_LANGUAGE: ko
 targets:
-  찐친 Ai:
+  # Target/product name must stay ASCII so build folders (e.g. Gallery.app,
+  # Gallery.build) contain no Korean. The Korean display name is preserved via
+  # CFBundleDisplayName / CFBundleName in Gallery/Info.plist.
+  Gallery:
     type: application
     platform: iOS
     sources:
@@ -22,10 +25,19 @@ targets:
         excludes:
           - "Info.plist"
           - "Gallery.entitlements"
+          # Added below as folder references so their directory structure is
+          # preserved in the bundle (avoids "Multiple commands produce
+          # SKILL.md / index.html" flattening collisions).
+          - "Resources/skills"
+          - "Resources/tinygarden"
+      - path: Gallery/Resources/skills
+        type: folder
+      - path: Gallery/Resources/tinygarden
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.google.aiedge.gallery
-        PRODUCT_NAME: "찐친 Ai"
+        PRODUCT_NAME: Gallery
         INFOPLIST_FILE: Gallery/Info.plist
         CODE_SIGN_ENTITLEMENTS: Gallery/Gallery.entitlements
         GENERATE_INFOPLIST_FILE: NO

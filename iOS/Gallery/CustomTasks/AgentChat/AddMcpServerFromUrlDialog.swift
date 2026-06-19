@@ -86,7 +86,7 @@ struct AddMcpServerFromUrlDialog: View {
                             Button(Str.cancel, action: safeDismiss).buttonStyle(.bordered)
                             Button(Str.add) {
                                 let url = urlText.trimmingCharacters(in: .whitespaces)
-                                if mcpManagerViewModel.hasMcpServer(url) {
+                                if mcpManagerViewModel.hasMcpServer(url: url) {
                                     showDuplicateAlert = true
                                 } else if isMcpHostApproved(url) {
                                     doAdd(url: url)
@@ -140,17 +140,4 @@ struct AddMcpServerFromUrlDialog: View {
         }
         mcpManagerViewModel.addMcpServer(url: url, authMethod: auth, headerName: headerName, headerValue: headerValue)
     }
-}
-
-private extension Str {
-    static let addMcpServerFromUrlDialogTitle = "Add MCP server from URL"
-    static let enterMcpServerUrl = "Enter MCP server URL"
-    static let mcpServerAuthorization = "Authorization"
-    static let mcpServerHeaderName = "Header name"
-    static let mcpServerHeaderValue = "Header value"
-    static let mcpServerDuplicateTitle = "Duplicate MCP server"
-    static let mcpServerDuplicateContent = "This MCP server URL is already added."
-    static let add = "Add"
-    static let cancel = "Cancel"
-    static let ok = "OK"
 }

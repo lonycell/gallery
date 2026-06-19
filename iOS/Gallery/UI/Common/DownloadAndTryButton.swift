@@ -224,7 +224,7 @@ struct DownloadAndTryButton: View {
   }
 
   private func handleClick() {
-    Task {
+    _Concurrency.Task {
       if needToDownloadFirst {
         downloadStarted = true
         if model.url.hasPrefix("https://huggingface.co") {

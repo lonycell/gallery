@@ -97,7 +97,7 @@ struct ChatView: View {
   // Optional parameters mirroring Kotlin defaults
   var skillCount: Int = 0
   var mcpCount: Int = 0
-  var onResetSessionClicked: (Model, [ChatMessage], Bool, () -> Void) -> Void = { _, _, _, done in done() }
+  var onResetSessionClicked: (Model, [ChatMessage], Bool, @escaping () -> Void) -> Void = { _, _, _, done in done() }
   var onStreamImageMessage: (Model, ChatMessageImage) -> Void = { _, _ in }
   var onStopButtonClicked: (Model) -> Void = { _ in }
   var onSkillClicked: () -> Void = {}
@@ -210,7 +210,7 @@ struct ChatView: View {
           history: historySessions,
           onHistoryItemClicked: { sessionId in
             if let session = historySessions.first(where: { $0.sessionId == sessionId }) {
-              Task {
+              _Concurrency.Task {
                 viewModel.setIsResettingSession(true)
                 let messages = deserializeProtoMessages(session.messages)
                 viewModel.clearAllMessages(model: selectedModel)

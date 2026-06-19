@@ -14,9 +14,8 @@ import SwiftUI
 /// downloadable LLMs offered for chat are also available here.
 let VOICE_ASSISTANT_TASK_ID = "speech_voice_assistant"
 
-/// Constants matching the Android speech model names (shared with Speech tasks).
-let NEURAL_STT_MODEL_NAME      = "SenseVoice Small (ko)"
-let WHISPER_KO_STT_MODEL_NAME  = "Whisper Small (ko)"
+// Speech model names are defined once in KoreanNeuralStt.swift / WhisperNeuralStt.swift
+// (NEURAL_STT_MODEL_NAME, WHISPER_KO_STT_MODEL_NAME) and shared with the Speech tasks.
 
 /// A custom task that hosts the hands-free Voice Assistant.
 ///
@@ -59,14 +58,14 @@ final class VoiceAssistantTask: CustomTask {
             shortDescription: "음성으로 AI와 대화",
             sourceCodeUrl:
                 "https://github.com/google-ai-edge/gallery/blob/main/Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/voiceassistant",
-            newFeature: true,
-            models: []
+            models: [],
+            newFeature: true
         )
     }
 
     func initializeModelFn(model: Model, systemInstruction: Contents?,
                            onDone: @escaping (String) -> Void) {
-        Task {
+        _Concurrency.Task {
             // Resolve the entry topic into a system prompt.
             let topic = await self.entryParams.topic
             let prompt = await self.promptSource.getPromptForTopic(topic)

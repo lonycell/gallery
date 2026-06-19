@@ -40,19 +40,19 @@ final class ExampleCustomTask: CustomTask {
                 Model(
                     name: "Local model",
                     info: "Expects to read the model file `model.txt` manually pushed to `{documents}/example_task/`.",
+                    configs: EXAMPLE_CUSTOM_TASK_CONFIGS,
+                    bestForTaskIds: ["example_custom_task"],
                     // NOTE: On Android `localFileRelativeDirPathOverride = "example_task/"` resolved
                     // to the external files directory. On iOS we use the Documents directory.
-                    localFileRelativeDirPathOverride: "example_task/",
-                    bestForTaskIds: ["example_custom_task"],
-                    configs: EXAMPLE_CUSTOM_TASK_CONFIGS
+                    localFileRelativeDirPathOverride: "example_task/"
                 ),
                 Model(
                     name: "Remote model",
                     info: "Downloads the model file (a README.md file for demonstration purpose) from internet.",
+                    configs: EXAMPLE_CUSTOM_TASK_CONFIGS,
                     url: "https://raw.githubusercontent.com/google-ai-edge/gallery/refs/heads/main/README.md",
                     sizeInBytes: 3798,
-                    downloadFileName: "README.md",
-                    configs: EXAMPLE_CUSTOM_TASK_CONFIGS
+                    downloadFileName: "README.md"
                 ),
             ]
         )
@@ -62,7 +62,7 @@ final class ExampleCustomTask: CustomTask {
 
     func initializeModelFn(model: Model, systemInstruction: Contents?, onDone: @escaping (String) -> Void) {
         model.instance = nil
-        Task.detached {
+        _Concurrency.Task.detached {
             do {
                 // Resolve file path.
                 // NOTE: On Android `model.getPath(context)` returned a path under the
@@ -91,7 +91,7 @@ final class ExampleCustomTask: CustomTask {
                 model.instance = ExampleCustomTaskModelInstance(content: content)
 
                 // Simulate initialization time.
-                try await Task<Never, Never>.sleep(nanoseconds: 1_500_000_000)
+                try await _Concurrency.Task<Never, Never>.sleep(nanoseconds: 1_500_000_000)
 
                 await MainActor.run { onDone("") }
             } catch {

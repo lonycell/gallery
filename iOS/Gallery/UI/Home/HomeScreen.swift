@@ -119,7 +119,7 @@ struct HomeScreen: View {
     .task(id: modelManagerViewModel.uiState.loadingModelAllowlist) {
       // Debounce: only show spinner after 200ms of loading
       if modelManagerViewModel.uiState.loadingModelAllowlist {
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await _Concurrency.Task.sleep(nanoseconds: 200_000_000)
         if modelManagerViewModel.uiState.loadingModelAllowlist {
           loadingDelayed = true
         }
@@ -568,9 +568,9 @@ private struct TaskListPager: View {
                 task: task,
                 index: 0,
                 animate: !initialAnimationDone && enableAnimation,
+                onClick: { onTaskTapped(task) },
                 description: chatToDesc[taskId] ?? "",
-                square: false,
-                onClick: { onTaskTapped(task) }
+                square: false
               )
               .frame(maxWidth: .infinity)
             }
@@ -643,7 +643,7 @@ private struct TaskListPager: View {
     }
     .task {
       let delay = Double((TASK_CARD_ANIMATION_DURATION_MS + TASK_CARD_ANIMATION_DELAY_OFFSET_MS) * 5) / 1000
-      try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+      try? await _Concurrency.Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
       initialAnimationDone = true
     }
   }

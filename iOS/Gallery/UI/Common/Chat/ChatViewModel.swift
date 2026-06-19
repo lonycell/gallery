@@ -195,7 +195,7 @@ class ChatViewModel: ObservableObject {
 
   func saveSession(sessionId: String, messages: [ChatMessage], originalModel: String, taskId: String) {
     let snapshot = messages
-    Task.detached { [store] in
+    _Concurrency.Task.detached { [store] in
       let firstText = snapshot.compactMap { $0 as? ChatMessageText }.first?.content
       let title: String = {
         guard let t = firstText else { return "New Chat Session" }
@@ -215,20 +215,20 @@ class ChatViewModel: ObservableObject {
   }
 
   func deleteSession(sessionId: String) {
-    Task.detached { [store] in
+    _Concurrency.Task.detached { [store] in
       await store?.updateUserData { data in data.chatSessions.removeAll { $0.sessionId == sessionId } }
       await MainActor.run { [weak self] in self?.reloadHistorySessions() }
     }
   }
 
   func clearAllSessions() {
-    Task.detached { [store] in
+    _Concurrency.Task.detached { [store] in
       await store?.updateUserData { data in data.chatSessions = [] }
       await MainActor.run { [weak self] in self?.reloadHistorySessions() }
     }
   }
 
-  private static func toProto(_ msg: ChatMessage, sessionId: String) -> ChatMessageProto? {
+  private nonisolated static func toProto(_ msg: ChatMessage, sessionId: String) -> ChatMessageProto? {
     var p = ChatMessageProto()
     switch msg {
     case let m as ChatMessageText:
@@ -258,7 +258,7 @@ class ChatViewModel: ObservableObject {
     return p
   }
 
-  private static func mapChatSide(_ side: ChatSide) -> ChatSideProto {
+  private nonisolated static func mapChatSide(_ side: ChatSide) -> ChatSideProto {
     switch side {
     case .user: return .user
     case .agent: return .model

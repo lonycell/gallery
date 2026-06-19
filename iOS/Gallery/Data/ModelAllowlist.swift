@@ -202,8 +202,8 @@ struct AllowedModel: Codable {
   }
 }
 
-// ModelFile is Codable for allowlist parsing.
-extension ModelFile: Codable {}
+// ModelFile's Codable conformance is declared on the type in Model.swift
+// (an empty extension here cannot synthesize Codable across files).
 
 struct NamedDeviceGroup: Codable {
   let groupName: String
